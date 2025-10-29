@@ -15,12 +15,13 @@ import Toast from "react-native-toast-message";
 import api from "../../utils/axiosInstance";
 import { SafeAreaView } from "react-native-safe-area-context";
 import CustomLoader from "../../components/CustomFormLoader";
+import { useAuth } from "../../context/AuthContext";
 export default function NewPasswordScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-
+  const {setResetToken, resetToken} = useAuth()
   const handleResetPassword = async () => {
     if (!password || !confirmPassword) {
       Toast.show({
@@ -40,7 +41,7 @@ export default function NewPasswordScreen() {
 
     try {
       setLoading(true);
-      const res = await api.post("/auth/password/reset", { password });
+      const res = await api.post("/auth/password/reset", { password: password, resetToken: resetToken });
       Toast.show({
         type: "success",
         text1: "Password reset successfully!",
@@ -125,17 +126,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     marginBottom: 40,
+    fontFamily: "Poppins_600SemiBold",
   },
   title: {
     fontSize: 20,
     fontWeight: "600",
     textAlign: "center",
     marginBottom: 6,
+    fontFamily: "Poppins_600SemiBold",
   },
   caption: {
     textAlign: "center",
     color: "#555",
     marginBottom: 30,
+    fontFamily: "Poppins_400Regular",
   },
   form: {
     marginBottom: 30,
@@ -144,6 +148,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#444",
     marginBottom: 6,
+    fontFamily: "Poppins_400Regular",
+
   },
   input: {
     borderBottomWidth: 1,
@@ -152,6 +158,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#000",
     marginBottom: 20,
+    fontFamily: "Poppins_400Regular",
+
   },
   button: {
     backgroundColor: "#5A31F4",
@@ -164,11 +172,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
+    fontFamily: "Poppins_600SemiBold",
+
   },
   backText: {
     textAlign: "center",
     color: "#5A31F4",
     fontWeight: "600",
     fontSize: 15,
+    fontFamily: "Poppins_400Regular",
+
   },
 });

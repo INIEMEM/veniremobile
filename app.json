@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.iniemem.veniremobile"
     },
     "android": {
       "adaptiveIcon": {
@@ -28,13 +29,20 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ],
     "extra": {
       "router": {},
       "eas": {
         "projectId": "b32dd775-3dbe-4c80-9579-8000016a7b14"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/b32dd775-3dbe-4c80-9579-8000016a7b14"
     }
   }
 }

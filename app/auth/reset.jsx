@@ -6,13 +6,14 @@ import api from "../../utils/axiosInstance";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 import CustomLoader from "../../components/CustomFormLoader";
+import { useAuth } from "../../context/AuthContext";
 export default function ResetPasswordScreen() {
-  const [otp, setOtp] = useState(["", "", "", ""]);
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [timer, setTimer] = useState(120); // 2 minutes
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const router = useRouter();
-
+  const {setResetToken, resetToken} = useAuth()
   // Countdown timer
   useEffect(() => {
     if (timer > 0) {
@@ -31,21 +32,23 @@ export default function ResetPasswordScreen() {
 
   const handleProceed = async () => {
     const code = otp.join("");
-    if (code.length < 4) {
+    if (code.length < 6) {
       Toast.show({ type: "error", text1: "Please enter the 4-digit OTP" });
       return;
     }
 
     try {
       setLoading(true);
-      const res = await api.post("/auth/password/forgot", { token: code });
+      const res = await api.post("/auth/password/verify", { token: code });
       Toast.show({ type: "success", text1: "OTP verified successfully" });
+      setResetToken(code)
       router.push("/auth/newpassword"); // Redirect to password reset screen
     } catch (error) {
       Toast.show({
         type: "error",
         text1: error.response?.data?.message || "OTP verification failed",
       });
+      console.log(error)
     } finally {
       setLoading(false);
     }
@@ -84,7 +87,7 @@ export default function ResetPasswordScreen() {
         </View> 
       <Text style={styles.appName}>Venire</Text>
       <Text style={styles.title}>OTP Verification</Text>
-      <Text style={styles.caption}>Enter the four-digit code sent to your email</Text>
+      <Text style={styles.caption}>Enter the six-digit code sent to your email</Text>
 
       {/* OTP Inputs */}
       <View style={styles.otpContainer}>

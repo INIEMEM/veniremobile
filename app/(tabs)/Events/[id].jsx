@@ -1,4 +1,4 @@
-import React,  { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,237 +6,389 @@ import {
   ScrollView,
   Image,
   TouchableOpacity,
-  Animated
+  Animated,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Dimensions } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Toast from "react-native-toast-message";
+
+import CommentsSection from "../../../components/CommentsSection";
+import api from "../../../utils/axiosInstance";
 const { width } = Dimensions.get("window");
+
 export default function EventDetailsScreen() {
-  // Create animation refs for each event
+  const { id } = useLocalSearchParams(); // Get event ID from route
+  const router = useRouter();
   const animations = useRef({}).current;
-  const [event, setEvents] = useState({
-    id: 1,
-  imgSrc:
-    "https://images.pexels.com/photos/34384967/pexels-photo-34384967.jpeg?auto=compress&cs=tinysrgb&w=600&lazy=load",
-  title: "Afrobeats Music Night",
-  caption:
-    "Season 2 Phase 4.",
-  date: "Oct 28, 2025",
-  time: "7:00 PM",
-  location: "Lagos, Nigeria",
-  price: "₦5,000",
-  userImg:
-    "https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=600",
-  roles: "Baker | Chef | Transporter",
-  description:
-    "Join us for an amazing cooking masterclass featuring African dishes and food artistry...",
-  liked: false,
-  likes: 0,
-  comments: 0,
-  engagement: 0,
-  }
-); 
-  // 🩷 Handle Like with Bounce
-  const handleLike = (id) => {
-    if (!animations[id]) animations[id] = new Animated.Value(1);
   
-    Animated.sequence([
-      Animated.timing(animations[id], {
-        toValue: 1.5,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.spring(animations[id], {
-        toValue: 1,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  
-    setEvents((prev) => ({
-      ...prev,
-      liked: !prev.liked,
-      likes: prev.liked ? prev.likes - 1 : prev.likes + 1,
-    }));
+  const [event, setEvent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+
+  useEffect(() => {
+    if (id) {
+      fetchEventDetails();
+    }
+  }, [id]);
+
+  const fetchEventDetails = async () => {
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem("token");
+
+      const response = await api.get(`/event?key=id&value=${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.data.success) {
+        setEvent(response.data.data[0]);
+      }
+    } catch (error) {
+      console.error("Error fetching event details:", error);
+      Toast.show({
+        type: "error",
+        text1: "Failed to load event",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
-  // const event = 
-  const comments = [
-    {
-      id: 1,
-      userImg:
-        "https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=600",
-      userName: "Jane Doe",
-      time: "3 mins ago",
-      comment: "This event looks amazing! Can't wait 😍",
-      likes: 24,
-      replies: [
-        {
-          id: 11,
-          userImg:
-            "https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?auto=compress&cs=tinysrgb&w=600",
-          userName: "Michael",
-          time: "1 min ago",
-          comment: "Same here! Let’s go together 😎",
-          likes: 4,
-        },
-      ],
-    },
-    {
-      id: 2,
-      userImg:
-        "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=600",
-      userName: "John Smith",
-      time: "15 mins ago",
-      comment: "Afrobeats night is always 🔥",
-      likes: 19,
-      replies: [],
-    },
-  ];
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchEventDetails();
+    setRefreshing(false);
+  };
+
+  // Handle Like with animation
+  const handleLike = async () => {
+    if (!event) return;
+
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const endpoint = event.hasLiked ? "/event/unlike" : "/event/like";
+
+      if (!animations[event._id]) animations[event._id] = new Animated.Value(1);
+
+      Animated.sequence([
+        Animated.timing(animations[event._id], {
+          toValue: 1.5,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.spring(animations[event._id], {
+          toValue: 1,
+          friction: 3,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      await api.post(
+        endpoint,
+        { eventId: event._id },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setEvent((prev) => ({
+        ...prev,
+        hasLiked: !prev.hasLiked,
+        totalLikes: prev.hasLiked
+          ? (prev.totalLikes || 0) - 1
+          : (prev.totalLikes || 0) + 1,
+      }));
+
+      Toast.show({
+        type: "success",
+        text1: event.hasLiked ? "Unliked" : "Liked",
+      });
+    } catch (error) {
+      console.error("Error liking event:", error);
+      Toast.show({
+        type: "error",
+        text1: "Action failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    }
+  };
+
+  // Handle Bookmark
+  const handleBookmark = async () => {
+    if (!event) return;
+
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const endpoint = event.hasBookmarked ? "/event/cancel-bookmark" : "/event/bookmark";
+
+      await api.post(
+        endpoint,
+        { eventId: event._id },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setEvent((prev) => ({
+        ...prev,
+        hasBookmarked: !prev.hasBookmarked,
+      }));
+
+      Toast.show({
+        type: "success",
+        text1: event.hasBookmarked ? "Bookmark removed" : "Bookmarked",
+      });
+    } catch (error) {
+      console.error("Error bookmarking event:", error);
+      Toast.show({
+        type: "error",
+        text1: "Action failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    }
+  };
+
+  // Handle Interested
+  const handleInterested = async () => {
+    if (!event) return;
+
+    try {
+      const token = await AsyncStorage.getItem("token");
+
+      await api.post(
+        "/event/interest",
+        { eventId: event._id, userStatus: "ongoing" },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      Toast.show({
+        type: "success",
+        text1: "Marked as interested",
+      });
+    } catch (error) {
+      console.error("Error marking interest:", error);
+      Toast.show({
+        type: "error",
+        text1: "Action failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    }
+  };
+
+  // Format date
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  // Format time
+  const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#5A31F4" />
+        <Text style={styles.loadingText}>Loading event...</Text>
+      </View>
+    );
+  }
+
+  if (!event) {
+    return (
+      <View style={styles.centerContainer}>
+        <Ionicons name="alert-circle-outline" size={64} color="#ccc" />
+        <Text style={styles.emptyText}>Event not found</Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const eventImage =
+    event.images && event.images.length > 0
+      ? event.images[0]
+      : "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800";
+
+  const organizerImage =
+    event.userId?.profile_picture ||
+    "https://via.placeholder.com/40/5A31F4/FFFFFF?text=" +
+      (event.userId?.firstname?.charAt(0) || "U");
+
+  
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Event Details</Text>
-      <View style={styles.avatarContainer}>
-        <View style={styles.organizerName}>
-          <Image source={{ uri: event.imgSrc }}  style={styles.replyAvatar}/>
-          <View>
-            <Text style={styles.userName}>Organizer Name</Text>
-            <Text style={styles.time}>Organizer Role</Text>
-          </View>
-        </View>
-        <View>
-          <Ionicons name="ellipsis-vertical" size={20} color="#888" />
-        </View>
-      </View>
-      <Text style={[styles.smalltitle, { marginTop: 20 }]}>Event Description</Text>
-      <Text style={styles.desc}>{event.description}</Text>
-      {/* Event Image */}
-      <Image source={{ uri: event.imgSrc }} style={styles.eventImage} />
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <Text style={styles.title}>Event Details</Text>
 
-      {/* Event Info */}
-      <View style={styles.eventDetails}>
-      <Text style={styles.smalltitle}>{event.title}</Text>
-      <Text style={styles.caption}>{event.caption}</Text>
-      <View style={styles.infoRow}>
-          <Text style={styles.dateTime}>
-                {event.date} • {event.time}
-          </Text>
-      </View>
-
-      <View style={[styles.infoRow2]}>
-        <View style={styles.mapBox}>
-          <Text style={styles.mapText}>Map</Text>
-        </View>
-        <View>
-          <Text style={styles.mapText}>{event.location}</Text>
-          <Text style={styles.mapText}>
-            Latitude: 9.0765° N, Longitude: 7.3986° E
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.priceRow}>
-        <TouchableOpacity style={styles.interestedBtn}>
-          <Text style={styles.interestedText}>Interested</Text>
-        </TouchableOpacity>
-        <Text style={styles.price}>{event.price}</Text>
-      </View>
-
-      {/* ❤️ Animated Like Icon */}
-      <View style={styles.statsRow}>
-        <TouchableOpacity onPress={() => handleLike(event.id)}>
-          <Animated.View style={{ transform: [{ scale: animations[event.id] || new Animated.Value(1) }], flexDirection: "row",
-          alignItems: "center",
-          gap: 4, }}>
-            <Ionicons
-              name={event.liked ? "heart" : "heart-outline"}
-              size={24}
-              color={event.liked ? "red" : "#555"}
-            />
-            <Text style={styles.likesText}>{event.likes} Likes</Text>
-          </Animated.View>
-        </TouchableOpacity>
-
-        <View style={styles.statItem}>
-          <Ionicons name="chatbubble-outline" size={20} color="#555" />
-          <Text style={styles.statText}>{event.comments}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Ionicons name="trending-up-outline" size={20} color="#555" />
-          <Text style={styles.statText}>{event.engagement}</Text>
-        </View>
-        <Ionicons name="bookmark-outline" size={20} color="#555" />
-        <Ionicons name="share-social-outline" size={20} color="#555" />
-      </View>
-
-      </View>
-
-      {/* Comments Section */}
-      <View style={styles.commentSection}>
-        <Text style={styles.commentHeader}>Comments</Text>
-
-        {comments.map((item) => (
-          <View key={item.id} style={styles.commentCard}>
-            <Image source={{ uri: item.userImg }} style={styles.avatar} />
-            <View style={{ flex: 1 }}>
-              <View style={styles.commentHeaderRow}>
-                <Text style={styles.userName}>{item.userName}</Text>
-                <Text style={styles.time}>{item.time}</Text>
-              </View>
-              <Text style={styles.commentText}>{item.comment}</Text>
-
-              {/* Engagements */}
-              <View style={styles.engagementRow}>
-                <TouchableOpacity style={styles.engagementItem}>
-                  <Ionicons name="heart-outline" size={18} color="#FF4D67" />
-                  <Text style={styles.engagementText}>{item.likes}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.engagementItem}>
-                  <Ionicons name="chatbubble-outline" size={18} color="#888" />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.engagementItem}>
-                  <Ionicons name="share-social-outline" size={18} color="#888" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Replies */}
-              {item.replies.length > 0 && (
-                <View style={styles.repliesContainer}>
-                  {item.replies.map((reply) => (
-                    <View key={reply.id} style={styles.replyCard}>
-                      <Image
-                        source={{ uri: reply.userImg }}
-                        style={styles.replyAvatar}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <View style={styles.commentHeaderRow}>
-                          <Text style={styles.userName}>{reply.userName}</Text>
-                          <Text style={styles.time}>{reply.time}</Text>
-                        </View>
-                        <Text style={styles.commentText}>{reply.comment}</Text>
-
-                        <View style={styles.engagementRow}>
-                          <TouchableOpacity style={styles.engagementItem}>
-                            <Ionicons
-                              name="heart-outline"
-                              size={16}
-                              color="#FF4D67"
-                            />
-                            <Text style={styles.engagementText}>
-                              {reply.likes}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
+        {/* Organizer Info */}
+        <View style={styles.avatarContainer}>
+          <View style={styles.organizerName}>
+            <Image source={{ uri: organizerImage }} style={styles.replyAvatar} />
+            <View>
+              <Text style={styles.userName}>
+                {event.userId?.firstname || "Unknown"}{" "}
+                {event.userId?.lastname || ""}
+              </Text>
+              <Text style={styles.time}>{event.userId?.email || "Organizer"}</Text>
             </View>
           </View>
-        ))}
-      </View>
-    </ScrollView>
+          <View>
+            <Ionicons name="ellipsis-vertical" size={20} color="#888" />
+          </View>
+        </View>
+
+        {/* Event Description */}
+        <Text style={[styles.smalltitle, { marginTop: 20 }]}>
+          Event Description
+        </Text>
+        <Text style={styles.desc}>{event.description}</Text>
+
+        {/* Event Image */}
+        <Image source={{ uri: eventImage }} style={styles.eventImage} />
+
+        {/* Event Info */}
+        <View style={styles.eventDetails}>
+          <Text style={styles.smalltitle}>{event.name}</Text>
+          <Text style={styles.caption}>
+            Capacity: {event.capacity} people
+          </Text>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.dateTime}>
+              {formatDate(event.start)} • {formatTime(event.start)}
+            </Text>
+          </View>
+
+          <View style={[styles.infoRow2]}>
+            <View style={styles.mapBox}>
+              <Text style={styles.mapText}>Map</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.mapText}>{event.address}</Text>
+              <Text style={styles.mapText}>
+                Lat: {event.lat}°, Long: {event.long}°
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.priceRow}>
+            <TouchableOpacity
+              style={styles.interestedBtn}
+              onPress={handleInterested}
+            >
+              <Text style={styles.interestedText}>Interested</Text>
+            </TouchableOpacity>
+            <Text style={styles.price}>
+              {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
+            </Text>
+          </View>
+
+          {/* Stats Row */}
+          <View style={styles.statsRow}>
+            <TouchableOpacity onPress={handleLike}>
+              <Animated.View
+                style={{
+                  transform: [
+                    {
+                      scale:
+                        animations[event._id] || new Animated.Value(1),
+                    },
+                  ],
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <Ionicons
+                  name={event.hasLiked ? "heart" : "heart-outline"}
+                  size={24}
+                  color={event.hasLiked ? "red" : "#555"}
+                />
+                <Text style={styles.likesText}>
+                  {event.totalLikes || 0}
+                </Text>
+              </Animated.View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.statItem}
+              onPress={() => setShowComments(true)}
+            >
+              <Ionicons name="chatbubble-outline" size={20} color="#555" />
+              <Text style={styles.statText}>
+                {event.totalComments || 0}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.statItem}>
+              <Ionicons name="eye-outline" size={20} color="#555" />
+              <Text style={styles.statText}>
+                {event.hasViewed ? "✓" : ""}
+              </Text>
+            </View>
+
+            <TouchableOpacity onPress={handleBookmark}>
+              <Ionicons
+                name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+                size={20}
+                color={event.hasBookmarked ? "#5A31F4" : "#555"}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity>
+              <Ionicons name="share-social-outline" size={20} color="#555" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Toggle Comments Button */}
+        <TouchableOpacity
+          style={styles.viewCommentsBtn}
+          onPress={() => setShowComments(!showComments)}
+        >
+          <Text style={styles.viewCommentsText}>
+            {showComments ? "Hide Comments" : "View Comments"}
+          </Text>
+          <Ionicons
+            name={showComments ? "chevron-up" : "chevron-down"}
+            size={20}
+            color="#5A31F4"
+          />
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* Comments Section - Conditionally Rendered */}
+      {showComments && (
+        <View style={styles.commentsWrapper}>
+
+          <CommentsSection eventId={event._id} />
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -244,19 +396,44 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
-    paddingVertical: 50,  
+    paddingVertical: 50,
     paddingHorizontal: 16,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontFamily: "Poppins_400Regular",
+    color: "#666",
+  },
+  emptyText: {
+    marginTop: 10,
+    fontFamily: "Poppins_400Regular",
+    color: "#999",
+    fontSize: 16,
+  },
+  backButton: {
+    marginTop: 20,
+    backgroundColor: "#5A31F4",
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: "#fff",
+    fontFamily: "Poppins_500Medium",
   },
   eventImage: {
     width: "100%",
-    height: 150,
+    height: 200,
     borderRadius: 16,
-    // borderBottomRightRadius: 16,
-    // marginTop: 100,  
+    marginBottom: 15,
   },
-  eventDetails: {
-    // padding: 16,
-  },
+  eventDetails: {},
   title: {
     fontFamily: "Poppins_600SemiBold",
     fontSize: 18,
@@ -288,34 +465,6 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 4,
   },
-  infoText: {
-    fontFamily: "Poppins_400Regular",
-    color: "#777",
-  },
-  price: {
-    fontFamily: "Poppins_600SemiBold",
-    color: "#FF4D67",
-    marginTop: 10,
-  },
-  commentSection: {
-    // paddingHorizontal: 16,
-    paddingBottom: 30,
-  },
-  commentHeader: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  commentCard: {
-    flexDirection: "row",
-    marginBottom: 20,
-  },
-  avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    marginRight: 10,
-  },
   userName: {
     fontFamily: "Poppins_500Medium",
     fontSize: 13,
@@ -326,64 +475,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#999",
   },
-  commentHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  commentText: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 13,
-    color: "#444",
-    marginTop: 3,
-  },
-  engagementRow: {
-    flexDirection: "row",
-    marginTop: 6,
-    gap: 14,
-  },
-  engagementItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  engagementText: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 12,
-    color: "#777",
-  },
-  repliesContainer: {
-    marginTop: 8,
-    marginLeft: 40,
-  },
-  replyCard: {
-    flexDirection: "row",
-    marginBottom: 12,
-  },
-  replyAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 8,
-  },
   avatarContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 15,
-    marginTop: 20, 
+    marginTop: 20,
   },
-  organizerName:
-  {
-    
+  organizerName: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 0,
-    // marginBottom: 10,
-  },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    gap: 10,
   },
   infoRow2: {
     flexDirection: "row",
@@ -465,5 +567,32 @@ const styles = StyleSheet.create({
     color: "#777",
     fontSize: 12,
     marginTop: 5,
+  },
+  replyAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#eee",
+  },
+  viewCommentsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 15,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+    marginTop: 10,
+  },
+  viewCommentsText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 14,
+    color: "#5A31F4",
+  },
+  commentsWrapper: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderTopWidth: 2,
+    borderTopColor: "#eee",
   },
 });

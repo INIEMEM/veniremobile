@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import {
   View,
   Text,
@@ -13,20 +13,16 @@ import { useRouter } from "expo-router";
 import api from "../../utils/axiosInstance";
 import Toast from 'react-native-toast-message';
 import CustomLoader from "../../components/CustomFormLoader";
+import { useAuth } from "../../context/AuthContext";
+
 // import '../../assets/'
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Check for existing session
-  // useEffect(() => {
-  //   const checkSession = async () => {
-  //     const token = await AsyncStorage.getItem("token");
-  //     // if (token) router.replace("/home");
-  //   };
-  //   checkSession();
-  // }, []);
+  const { login } = useAuth();
+ 
 
   const handleLogin = async () => {
     // Simulated login logic (replace with API call)
@@ -47,7 +43,7 @@ export default function LoginScreen() {
       if (!token) throw new Error("No token returned from server.");
 
       await login(token);
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)/Home");
 
       console.log("Login successful:", res.data);
     } catch (error) {
@@ -74,7 +70,7 @@ export default function LoginScreen() {
 
   const handleExplore = async () => {
     await AsyncStorage.setItem("isGuest", "true");
-    router.replace("/(tabs)/home");
+    router.replace("/(tabs)/Home");
   };
 
   return (
@@ -82,7 +78,7 @@ export default function LoginScreen() {
       {/* Show loader when submitting */}
       {isSubmitting && <CustomLoader />}
       {/* App Logo */}
-
+      
       <Image
         source={require("../../assets/splash.png")}
         style={styles.logo}
@@ -104,7 +100,7 @@ export default function LoginScreen() {
           placeholderTextColor="#999"
           keyboardType="email-address"
         />
-
+         
         <Text style={styles.label}>Password</Text>
         <TextInput
           style={styles.input}
@@ -142,7 +138,7 @@ export default function LoginScreen() {
         <Text style={styles.exploreText}>Explore</Text>
       </TouchableOpacity>
       </View>
-      
+      {/* Google auth here  */}
     </View>
   );
 }

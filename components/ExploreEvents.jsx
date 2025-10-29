@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -7,141 +7,294 @@ import {
   Image,
   TouchableOpacity,
   Animated,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { Dimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { truncateText } from "../utils/truncateText";
+import api from "../utils/axiosInstance";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Toast from "react-native-toast-message";
 
 const { width } = Dimensions.get("window");
 
-export default function ExploreEvents() {
+export default function ExploreEvents({ userId = null }) {
   const router = useRouter();
-
-  const [events, setEvents] = useState([
-    {
-      id: 1,
-      host: "Chef Tunde",
-      roles: "Baker | Chef | Transporter",
-      description:
-        "Join us for an amazing cooking masterclass featuring African dishes and food artistry...",
-      flier:
-        "https://images.pexels.com/photos/5938/food-salad-healthy-lunch.jpg?auto=compress&cs=tinysrgb&w=800",
-      title: "African Cooking Masterclass",
-      caption: "A day of delicious creativity and fun.",
-      date: "Nov 10, 2025",
-      time: "10:00 AM",
-      location: "Abuja, Nigeria",
-      price: "₦15,000",
-      likes: 120,
-      comments: 45,
-      engagement: 200,
-      liked: false,
-    },
-    {
-      id: 2,
-      host: "Chef Tunde",
-      roles: "Baker | Chef | Transporter",
-      description:
-        "Join us for an amazing cooking masterclass featuring African dishes and food artistry...",
-      flier:
-        "https://images.pexels.com/photos/5938/food-salad-healthy-lunch.jpg?auto=compress&cs=tinysrgb&w=800",
-      title: "African Cooking Masterclass",
-      caption: "A day of delicious creativity and fun.",
-      date: "Nov 10, 2025",
-      time: "10:00 AM",
-      location: "Abuja, Nigeria",
-      price: "₦15,000",
-      likes: 120,
-      comments: 45,
-      engagement: 200,
-      liked: false,
-    },
-    
-    {
-      id: 3,
-      host: "Chef Tunde",
-      roles: "Baker | Chef | Transporter",
-      description:
-        "Join us for an amazing cooking masterclass featuring African dishes and food artistry...",
-      flier:
-        "https://images.pexels.com/photos/5938/food-salad-healthy-lunch.jpg?auto=compress&cs=tinysrgb&w=800",
-      title: "African Cooking Masterclass",
-      caption: "A day of delicious creativity and fun.",
-      date: "Nov 10, 2025",
-      time: "10:00 AM",
-      location: "Abuja, Nigeria",
-      price: "₦15,000",
-      likes: 120,
-      comments: 45,
-      engagement: 200,
-      liked: false,
-    },
-
-  ]);
-
-  // Create animation refs for each event
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const animations = useRef({}).current;
 
-  // 🩷 Handle Like with Bounce
-  const handleLike = (id) => {
-    setEvents((prev) =>
-      prev.map((event) => {
-        if (event.id === id) {
-          // Trigger animation
-          if (!animations[id]) animations[id] = new Animated.Value(1);
-          Animated.sequence([
-            Animated.timing(animations[id], {
-              toValue: 1.5,
-              duration: 150,
-              useNativeDriver: true,
-            }),
-            Animated.spring(animations[id], {
-              toValue: 1,
-              friction: 3,
-              useNativeDriver: true,
-            }),
-          ]).start();
+  // Fetch events on mount
+  useEffect(() => {
+    fetchEvents();
+  }, [userId]);
 
-          return {
-            ...event,
-            liked: !event.liked,
-            likes: event.liked ? event.likes - 1 : event.likes + 1,
-          };
-        }
-        return event;
-      })
-    );
+  const fetchEvents = async () => {
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem("token");
+      
+      let url = "/event";
+      if (userId) {
+        url = `/event/key?value=${userId}&key=userId`;
+      }
+
+      const response = await api.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.data.success) {
+        const eventsData = response.data.data || [];
+        
+        // Fetch comment counts and like counts for each event
+        const eventsWithCounts = await Promise.all(
+          eventsData.map(async (event) => {
+            try {
+              // Fetch comments count
+              const commentsResponse = await api.get(
+                `/event/comment?eventId=${event._id}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              
+              const commentCount = commentsResponse.data?.count || 0;
+              
+              // Get likes count from event data (assuming it has a likes array or count)
+              const likeCount = event.likes?.length || event.likeCount || 0;
+              
+              return {
+                ...event,
+                totalComments: commentCount,
+                totalLikes: likeCount,
+              };
+            } catch (error) {
+              console.error(`Error fetching counts for event ${event._id}:`, error);
+              return {
+                ...event,
+                totalComments: 0,
+                totalLikes: 0,
+              };
+            }
+          })
+        );
+        
+        setEvents(eventsWithCounts);
+      }
+    } catch (error) {
+      console.error("Error fetching events:", error);
+      Toast.show({
+        type: "error",
+        text1: "Failed to load events",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchEvents();
+    setRefreshing(false);
+  };
 
+  // Handle Like/Unlike
+  const handleLike = async (eventId, isLiked) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const endpoint = isLiked ? "/event/unlike" : "/event/like";
+
+      await api.post(
+        endpoint,
+        { eventId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Update local state
+      setEvents((prev) =>
+        prev.map((event) => {
+          if (event._id === eventId) {
+            // Trigger animation
+            if (!animations[eventId]) animations[eventId] = new Animated.Value(1);
+            Animated.sequence([
+              Animated.timing(animations[eventId], {
+                toValue: 1.5,
+                duration: 150,
+                useNativeDriver: true,
+              }),
+              Animated.spring(animations[eventId], {
+                toValue: 1,
+                friction: 3,
+                useNativeDriver: true,
+              }),
+            ]).start();
+
+            return {
+              ...event,
+              hasLiked: !isLiked,
+              totalLikes: isLiked ? (event.totalLikes || 0) - 1 : (event.totalLikes || 0) + 1,
+            };
+          }
+          return event;
+        })
+      );
+
+      Toast.show({
+        type: "success",
+        text1: isLiked ? "Unliked" : "Liked",
+      });
+    } catch (error) {
+      console.error("Error liking event:", error);
+      Toast.show({
+        type: "error",
+        text1: "Action failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    }
+  };
+
+  // Handle Bookmark/Unbookmark
+  const handleBookmark = async (eventId, isBookmarked) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const endpoint = isBookmarked ? "/event/cancel-bookmark" : "/event/bookmark";
+
+      await api.post(
+        endpoint,
+        { eventId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Update local state
+      setEvents((prev) =>
+        prev.map((event) =>
+          event._id === eventId
+            ? { ...event, hasBookmarked: !isBookmarked }
+            : event
+        )
+      );
+
+      Toast.show({
+        type: "success",
+        text1: isBookmarked ? "Bookmark removed" : "Bookmarked",
+      });
+    } catch (error) {
+      console.error("Error bookmarking event:", error);
+      Toast.show({
+        type: "error",
+        text1: "Action failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    }
+  };
+
+  // Handle Interested
+  const handleInterested = async (eventId) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+
+      await api.post(
+        "/event/interest",
+        { eventId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      Toast.show({
+        type: "success",
+        text1: "Marked as interested",
+      });
+    } catch (error) {
+      console.error("Error marking interest:", error);
+      Toast.show({
+        type: "error",
+        text1: "Action failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    }
+  };
+
+  // Format date
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  // Format time
+  const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#5A31F4" />
+        <Text style={styles.loadingText}>Loading events...</Text>
+      </View>
+    );
+  }
+
+  if (events.length === 0) {
+    return (
+      <View style={styles.centerContainer}>
+        <Ionicons name="calendar-outline" size={64} color="#ccc" />
+        <Text style={styles.emptyText}>No events found</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.container}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       {events.map((event) => {
-        if (!animations[event.id]) animations[event.id] = new Animated.Value(1);
+        if (!animations[event._id]) {
+          animations[event._id] = new Animated.Value(1);
+        }
+
+        const eventImage =
+          event.images && event.images.length > 0
+            ? event.images[0]
+            : "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800";
 
         return (
-          <View style={styles.eventCard} key={event.id}>
-            <Text style={styles.host}>{event.host}</Text>
-            <Text style={styles.roles}>{event.roles}</Text>
+          <View style={styles.eventCard} key={event._id}>
+            <Text style={styles.host}>
+              {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
+            </Text>
+            <Text style={styles.roles}>{event.userId?.email || ""}</Text>
 
             <Text style={[styles.host, { marginTop: 20 }]}>Event Description</Text>
             <TouchableOpacity
-              onPress={() => router.push(`/(tabs)/Events/${event.id}`)}
+              onPress={() => router.push(`/(tabs)/Events/${event._id}`)}
             >
               <Text style={styles.description}>
                 {truncateText(event.description, 300, "long")}
               </Text>
             </TouchableOpacity>
 
-            <Image source={{ uri: event.flier }} style={styles.flier} />
+            <Image source={{ uri: eventImage }} style={styles.flier} />
 
-            <Text style={styles.eventTitle}>{event.title}</Text>
-            <Text style={styles.caption}>{event.caption}</Text>
+            <Text style={styles.eventTitle}>{event.name}</Text>
+            <Text style={styles.caption}>{event.description}</Text>
 
             <View style={styles.infoRow}>
               <Text style={styles.dateTime}>
-                {event.date} • {event.time}
+                {formatDate(event.start)} • {formatTime(event.start)}
               </Text>
             </View>
 
@@ -149,49 +302,75 @@ export default function ExploreEvents() {
               <View style={styles.mapBox}>
                 <Text style={styles.mapText}>Map</Text>
               </View>
-              <View>
-                <Text style={styles.mapText}>{event.location}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mapText}>{event.address}</Text>
                 <Text style={styles.mapText}>
-                  Latitude: 9.0765° N, Longitude: 7.3986° E
+                  Lat: {event.lat}°, Long: {event.long}°
                 </Text>
               </View>
             </View>
 
             <View style={styles.priceRow}>
-              <TouchableOpacity style={styles.interestedBtn}>
+              <TouchableOpacity
+                style={styles.interestedBtn}
+                onPress={() => handleInterested(event._id)}
+              >
                 <Text style={styles.interestedText}>Interested</Text>
               </TouchableOpacity>
-              <Text style={styles.price}>{event.price}</Text>
+              <Text style={styles.price}>
+                {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
+              </Text>
             </View>
 
-            {/* ❤️ Animated Like Icon */}
+            {/* Stats Row */}
             <View style={styles.statsRow}>
-              <TouchableOpacity onPress={() => handleLike(event.id)}>
-                <Animated.View style={{ transform: [{ scale: animations[event.id] }], flexDirection: "row",
-    alignItems: "center",
-    gap: 4, }}>
+              <TouchableOpacity
+                onPress={() => handleLike(event._id, event.hasLiked)}
+              >
+                <Animated.View
+                  style={{
+                    transform: [{ scale: animations[event._id] }],
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
                   <Ionicons
-                    name={event.liked ? "heart" : "heart-outline"}
+                    name={event.hasLiked ? "heart" : "heart-outline"}
                     size={24}
-                    color={event.liked ? "red" : "#555"}
+                    color={event.hasLiked ? "red" : "#555"}
                   />
-                  <Text style={styles.likesText}>{event.likes} Likes</Text>
+                  <Text style={styles.likesText}>{event.totalLikes || 0}</Text>
                 </Animated.View>
               </TouchableOpacity>
 
-              <View style={styles.statItem}>
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={() => router.push(`/(tabs)/Events/${event._id}?tab=comments`)}
+              >
                 <Ionicons name="chatbubble-outline" size={20} color="#555" />
-                <Text style={styles.statText}>{event.comments}</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Ionicons name="trending-up-outline" size={20} color="#555" />
-                <Text style={styles.statText}>{event.engagement}</Text>
-              </View>
-              <Ionicons name="bookmark-outline" size={20} color="#555" />
-              <Ionicons name="share-social-outline" size={20} color="#555" />
-            </View>
+                <Text style={styles.statText}>{event.totalComments || 0}</Text>
+              </TouchableOpacity>
 
-            
+              <View style={styles.statItem}>
+                <Ionicons name="eye-outline" size={20} color="#555" />
+                <Text style={styles.statText}>{event.hasViewed ? "✓" : ""}</Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => handleBookmark(event._id, event.hasBookmarked)}
+              >
+                <Ionicons
+                  name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+                  size={20}
+                  color={event.hasBookmarked ? "#5A31F4" : "#555"}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity>
+                <Ionicons name="share-social-outline" size={20} color="#555" />
+              </TouchableOpacity>
+            </View>
           </View>
         );
       })}
@@ -204,14 +383,25 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 15,
   },
-  eventCard:{
-    marginBottom: 25,
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 50,
   },
-  title: {
-    fontFamily: "Poppins_600SemiBold",
-    color: "#444",
+  loadingText: {
+    marginTop: 10,
+    fontFamily: "Poppins_400Regular",
+    color: "#666",
+  },
+  emptyText: {
+    marginTop: 10,
+    fontFamily: "Poppins_400Regular",
+    color: "#999",
     fontSize: 16,
-    marginBottom: 10,
+  },
+  eventCard: {
+    marginBottom: 25,
   },
   host: {
     fontFamily: "Poppins_600SemiBold",

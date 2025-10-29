@@ -14,13 +14,13 @@ export default function Index() {
       await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const onboarded = await AsyncStorage.getItem("onboardingDone");
-      const token = await AsyncStorage.getItem("token");
+      const token = await AsyncStorage.getItem("tokens");
       const isGuest = await AsyncStorage.getItem("isGuest");
       if (!onboarded) router.replace("/onboarding/step1");
       else if (!token || !isGuest) router.replace("/auth/login");
       else router.replace("/(tabs)/Home");
 
-      // Give a small buffer before removing splash
+      // Give a small buffer before removing splashxc
       setTimeout(() => setShowSplash(false), 500);
     };
 

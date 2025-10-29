@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { View, Image, Animated, StyleSheet, Easing } from "react-native";
+import { View, Image, Animated, StyleSheet, Easing, Text } from "react-native";
 
 export default function Splash() {
   const scale = useRef(new Animated.Value(0)).current;
@@ -75,7 +75,7 @@ export default function Splash() {
         style={[styles.logo, { transform: [{ scale }] }]}
         resizeMode="contain"
       />
-
+      {/* <Text>Venire</Text> */}
       {/* Loading Ellipse (Dots) */}
       <View style={styles.dotsContainer}>
         <Animated.View
@@ -103,6 +103,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     marginBottom: 20,
+    objectFit: 'cover'
   },
   dotsContainer: {
     flexDirection: "row",
