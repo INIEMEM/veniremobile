@@ -23,7 +23,7 @@ import { useAuth } from "../../context/AuthContext";
 // import * as Google from 'expo-auth-session/providers/google';
 
 
-// WebBrowser.maybeCompleteAuthSession();
+WebBrowser.maybeCompleteAuthSession();
 export default function SignupScreen() {
   // GoogleSignin.configure({
   //   webClientId: '431768632462-k4mlc652auqkq5f8khcjf4nudt8e81rr.apps.googleusercontent.com', 
@@ -136,6 +136,8 @@ export default function SignupScreen() {
   //     });
   //   }
   // };
+
+  // co
   const router = useRouter();
   const [form, setForm] = useState({
     firstName: "",

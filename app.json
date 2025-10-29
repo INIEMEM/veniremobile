@@ -35,14 +35,15 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b32dd775-3dbe-4c80-9579-8000016a7b14"
+        "projectId": "7f7dc1d9-03c3-42d3-a51d-c5cf5bbdd7ab"
       }
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    "owner": "iniememdavid",
     "updates": {
-      "url": "https://u.expo.dev/b32dd775-3dbe-4c80-9579-8000016a7b14"
+      "url": "https://u.expo.dev/7f7dc1d9-03c3-42d3-a51d-c5cf5bbdd7ab"
     }
   }
 }

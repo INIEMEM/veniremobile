@@ -3,7 +3,7 @@ import { Stack } from "expo-router";
 import { AuthProvider } from "../context/AuthContext";
 import Toast from 'react-native-toast-message';
 import { useFonts, Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, Poppins_700Bold, Poppins_300Light } from "@expo-google-fonts/poppins";
-import { ThemeProvider } from '@rneui/themed';
+
 import { useEffect } from "react";
 // import * as SplashScreen from "expo-splash-screen";
 export default function RootLayout() {
@@ -32,10 +32,10 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <ThemeProvider>
+      
 
       <Stack screenOptions={{ headerShown: false }} />
-      </ThemeProvider>
+   
       <Toast />
     </AuthProvider>
   );
