@@ -47,11 +47,12 @@ export default function ExploreEvents({ userId = null }) {
       });
 
       if (response.data.success) {
-        const eventsData = response.data.data || [];
-        
+        const data = response?.data?.data;
+        const eventsData = Array.isArray(data) ? data : [data]; ;
+        console.log("Fetched events:", eventsData);
         // Fetch comment counts and like counts for each event
         const eventsWithCounts = await Promise.all(
-          eventsData.map(async (event) => {
+          eventsData?.map(async (event) => {
             try {
               // Fetch comments count
               const commentsResponse = await api.get(
@@ -381,7 +382,7 @@ export default function ExploreEvents({ userId = null }) {
 const styles = StyleSheet.create({
   container: {
     paddingVertical: 10,
-    paddingHorizontal: 15,
+    // paddingHorizontal: 15,
   },
   centerContainer: {
     flex: 1,

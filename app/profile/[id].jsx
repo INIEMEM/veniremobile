@@ -69,6 +69,7 @@ const handleImageUpload = async () => {
     });
 
     if (!result.canceled) {
+      setLoading(true);
       const image = result.assets[0];
       const formData = new FormData();
 
@@ -95,10 +96,12 @@ const handleImageUpload = async () => {
           avatar: response.data.data.profilePicture,
         }));
       }
+      setLoading(false);
     }
   } catch (error) {
     console.error("Upload error:", error.response?.data || error.message);
     Alert.alert("Error", "Failed to upload profile picture.");
+    setLoading(false);
   }
 };
 
@@ -236,8 +239,8 @@ const handleImageUpload = async () => {
           <View style={styles.content}>
             {activeTab === "events" && (
               <>
-                <Text style={styles.sectionTitle}>My Events</Text>
-                <ExploreEvents />
+                {/* <Text style={styles.sectionTitle}>My Events</Text> */}
+                <ExploreEvents userId = {id}/>
               </>
             )}
             {activeTab === "comments" && (

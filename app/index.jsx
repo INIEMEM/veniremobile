@@ -14,10 +14,12 @@ export default function Index() {
       await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const onboarded = await AsyncStorage.getItem("onboardingDone");
-      const token = await AsyncStorage.getItem("tokens");
+      const token = await AsyncStorage.getItem("token");
+      
       const isGuest = await AsyncStorage.getItem("isGuest");
+      // console.log("Token:", isGuest);
       if (!onboarded) router.replace("/onboarding/step1");
-      else if (!token || !isGuest) router.replace("/auth/login");
+      else if (!token) router.replace("/auth/login");
       else router.replace("/(tabs)/Home");
 
       // Give a small buffer before removing splashxc

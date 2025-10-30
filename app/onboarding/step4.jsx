@@ -195,6 +195,7 @@ const styles = StyleSheet.create({
     color: "#333",
     fontWeight: "600",
     fontFamily: "Poppins_600SemiBold",
+    fontSize: 11 / fontScale,
   },
   itemTextActive: {
     color: "#333",
