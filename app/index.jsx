@@ -14,7 +14,7 @@ export default function Index() {
       await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const onboarded = await AsyncStorage.getItem("onboardingDone");
-      const token = await AsyncStorage.getItem("token");
+      const token = await AsyncStorage.getItem("tokenss");
       console.log("token:", token)
       const isGuest = await AsyncStorage.getItem("isGuest");
       // console.log("Token:", isGuest);
