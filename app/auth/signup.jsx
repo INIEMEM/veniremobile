@@ -13,131 +13,65 @@ import api from "../../utils/axiosInstance";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CustomLoader from "../../components/CustomFormLoader";
 import { useAuth } from "../../context/AuthContext";
-// import { GoogleSignin } from '@react-native-google-signin/google-signin';
-// import {
-//   GoogleSignin,
-//   GoogleSigninButton,
-//   statusCodes,
-// } from '@react-native-google-signin/google-signin';
-// import * as WebBrowser from 'expo-web-browser';
-// import * as Google from 'expo-auth-session/providers/google';
-
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
 
 WebBrowser.maybeCompleteAuthSession();
+
 export default function SignupScreen() {
-  // GoogleSignin.configure({
-  //   webClientId: '431768632462-k4mlc652auqkq5f8khcjf4nudt8e81rr.apps.googleusercontent.com', 
-  // });
-  // useEffect(() => {
-  //   GoogleSignin.configure({
-  //     webClientId: "431768632462-k4mlc652auqkq5f8khcjf4nudt8e81rr.apps.googleusercontent.com",
-  //     offlineAccess: true, // for server-side auth if needed
-  //     scopes: ["profile", "email"],
-  //   });
-  // }, []);
-  // const signInWithGoogle = async () => {
-  //   try {
-  //     await GoogleSignin.hasPlayServices({
-  //       showPlayServicesUpdateDialog: true,
-  //     });
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    expoClientId: '431768632462-k4mlc652auqkq5f8khcjf4nudt8e81rr.apps.googleusercontent.com',
+    webClientId: '431768632462-k4mlc652auqkq5f8khcjf4nudt8e81rr.apps.googleusercontent.com',
+    iosClientId: '431768632462-0mv02q7p3ocvepa21bqdrb0ornqqgru4.apps.googleusercontent.com',
+    androidClientId: '431768632462-k4mlc652auqkq5f8khcjf4nudt8e81rr.apps.googleusercontent.com',
+    scopes: ['profile', 'email'],
+  });
 
-  //     const userInfo = await GoogleSignin.signIn();
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { authentication } = response;
+      handleGoogleLogin(authentication.accessToken);
+    } else if (response?.type === 'error') {
+      console.error('Google Auth Error:', response.error);
+      Toast.show({
+        type: "error",
+        text1: "Google Sign-In Failed",
+        text2: "Authentication failed. Please try again.",
+      });
+    }
+  }, [response]);
 
-  //     const idToken = userInfo?.idToken;
-  //     if (!idToken) {
-  //       throw new Error("No ID token received from Google");
-  //     }
+  const handleGoogleLogin = async (token) => {
+    try {
+      setIsSubmitting(true);
+      const res = await fetch("https://venire-backend.onrender.com/api/auth/google/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: token }),
+      });
 
-  //     // Send token to backend
-  //     const res = await fetch(
-  //       "https://venire-backend.onrender.com/api/auth/google/login",
-  //       {
-  //         method: "POST",
-  //         headers: { "Content-Type": "application/json" },
-  //         body: JSON.stringify({ idToken }),
-  //       }
-  //     );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Google login failed");
 
-  //     const data = await res.json();
+      await AsyncStorage.setItem("authToken", data.jwt);
+      Toast.show({ 
+        type: "success", 
+        text1: "Login Successful 🎉", 
+        text2: "Welcome to Venire!" 
+      });
+      router.replace("/(tabs)/Home");
+    } catch (error) {
+      console.error('Google Login Error:', error);
+      Toast.show({
+        type: "error",
+        text1: "Google Sign-In Failed",
+        text2: error.message || "Something went wrong",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
-  //     if (!res.ok) {
-  //       throw new Error(data?.message || "Failed to login with Google");
-  //     }
-
-  //     // Store JWT from backend
-  //     await AsyncStorage.setItem("authToken", data.jwt);
-
-  //     Toast.show({
-  //       type: "success",
-  //       text1: "Login Successful 🎉",
-  //       text2: "Welcome to Venire!",
-  //     });
-
-  //     router.replace("/(tabs)/Home");
-  //   } catch (error) {
-  //     console.error("Google Sign-In Error:", error);
-  //     if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-  //       // user cancelled the login flow
-  //       return;
-  //     } else if (error.code === statusCodes.IN_PROGRESS) {
-  //       return Toast.show({
-  //         type: "info",
-  //         text1: "Google Sign-In",
-  //         text2: "Sign-In already in progress.",
-  //       });
-  //     } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-  //       return Toast.show({
-  //         type: "error",
-  //         text1: "Google Play Services Error",
-  //         text2: "Google Play Services not available or outdated.",
-  //       });
-  //     } else {
-  //       Toast.show({
-  //         type: "error",
-  //         text1: "Google Sign-In Failed",
-  //         text2: error.message || "Something went wrong.",
-  //       });
-  //     }
-  //   }
-  // };
-  // const [request, response, promptAsync] = Google.useAuthRequest({
-  //   webClientId: '431768632462-k4mlc652auqkq5f8khcjf4nudt8e81rr.apps.googleusercontent.com',
-  //   iosClientId: '431768632462-0mv02q7p3ocvepa21bqdrb0ornqqgru4.apps.googleusercontent.com',
-  //   scopes: ['profile', 'email'],
-
-  // });
-
-  // useEffect(() => {
-  //   if (response?.type === 'success') {
-  //     const { authentication } = response;
-  //     handleGoogleLogin(authentication.accessToken);
-  //   }
-  // }, [response]);
-
-  // const handleGoogleLogin = async (token) => {
-  //   try {
-  //     const res = await fetch("https://venire-backend.onrender.com/api/auth/google/login", {
-  //       method: "POST",
-  //       headers: { "Content-Type": "application/json" },
-  //       body: JSON.stringify({ idToken: token }),
-  //     });
-
-  //     const data = await res.json();
-  //     if (!res.ok) throw new Error(data?.message || "Google login failed");
-
-  //     await AsyncStorage.setItem("authToken", data.jwt);
-  //     Toast.show({ type: "success", text1: "Login Successful 🎉", text2: "Welcome to Venire!" });
-  //     router.replace("/(tabs)/Home");
-  //   } catch (error) {
-  //     Toast.show({
-  //       type: "error",
-  //       text1: "Google Sign-In Failed",
-  //       text2: error.message,
-  //     });
-  //   }
-  // };
-
-  // co
   const router = useRouter();
   const [form, setForm] = useState({
     firstName: "",
@@ -147,7 +81,8 @@ export default function SignupScreen() {
     confirmPassword: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const {setLoggedEmail} = useAuth()
+  const { setLoggedEmail } = useAuth();
+
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -174,22 +109,21 @@ export default function SignupScreen() {
     try {
       setIsSubmitting(true);
       const res = await api.post("/auth/register", {
-        firstname:firstName,
-        lastname:lastName,
-        email:email,
-        password:password,
+        firstname: firstName,
+        lastname: lastName,
+        email: email,
+        password: password,
         password_confirm: confirmPassword
       });
-      setLoggedEmail(email)
+      setLoggedEmail(email);
+      
       Toast.show({
         type: "success",
         text1: "Account Created 🎉",
         text2: "You can now log in to Venire.",
       });
 
-      
       router.replace("/auth/checksignupmail");
-     
     } catch (error) {
       console.error(error.response);
       const message =
@@ -206,20 +140,17 @@ export default function SignupScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Show loader when submitting */}
       {isSubmitting && <CustomLoader />}
-      {/* App Logo */}
+      
       <Image
         source={require("../../assets/splash.png")}
         style={styles.logo}
       />
 
-      {/* App Name */}
       <Text style={styles.appName}>Venire</Text>
       <Text style={styles.welcomeText}>Create an account to start</Text>
       <Text style={styles.welcomeText}>discovering events!</Text>
 
-      {/* Signup Form */}
       <View style={styles.form}>
         <View style={styles.row}>
           <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
@@ -270,26 +201,28 @@ export default function SignupScreen() {
         />
       </View>
 
-      {/* Signup Button */}
-      <View style={{width:' 100%', paddingHorizontal: 24}}>
-
-          <TouchableOpacity
-            style={[styles.button, styles.signupButton]}
-            onPress={handleSignup}
-          >
-            <Text style={styles.signupText}>
-              {isSubmitting ? "Creating account..." : "Sign Up"}
-            </Text>
-          </TouchableOpacity>
+      <View style={{width: '100%', paddingHorizontal: 24}}>
+        <TouchableOpacity
+          style={[styles.button, styles.signupButton]}
+          onPress={handleSignup}
+          disabled={isSubmitting}
+        >
+          <Text style={styles.signupText}>
+            {isSubmitting ? "Creating account..." : "Sign Up"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Login Redirect */}
-      <TouchableOpacity>
-        <Text style={styles.loginRedirect}>Sign in with Google</Text>
+      {/* Improved Google Sign-In Button */}
+      <TouchableOpacity 
+        style={[styles.button, styles.googleButton]}
+        onPress={() => promptAsync({ useProxy: true })}
+        disabled={!request || isSubmitting}
+      >
+        <Text style={styles.googleButtonText}>
+          {isSubmitting ? "Signing in..." : "Sign in with Google"}
+        </Text>
       </TouchableOpacity>
-
-
-      {/* Google auth here */}
 
       <TouchableOpacity onPress={() => router.push("/auth/login")}>
         <Text style={styles.loginRedirect}>
@@ -297,7 +230,6 @@ export default function SignupScreen() {
           <Text style={styles.loginLink}>Login</Text>
         </Text>
       </TouchableOpacity>
-
     </View>
   );
 }
@@ -351,7 +283,6 @@ const styles = StyleSheet.create({
     color: "#444",
     marginBottom: 4,
     fontFamily: "Poppins_400Regular",
-
   },
   input: {
     borderBottomWidth: 1,
@@ -373,24 +304,31 @@ const styles = StyleSheet.create({
   signupButton: {
     backgroundColor: "#5A31F4",
   },
+  googleButton: {
+    backgroundColor: "#DB4437",
+    marginHorizontal: 24,
+  },
   signupText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
     fontFamily: "Poppins_400Regular",
-
+  },
+  googleButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+    fontFamily: "Poppins_400Regular",
   },
   loginRedirect: {
     fontSize: 14,
     color: "#555",
     textAlign: "center",
     fontFamily: "Poppins_400Regular",
-
   },
   loginLink: {
     color: "#5A31F4",
     fontWeight: "700",
     fontFamily: "Poppins_500Medium",
-
   },
 });

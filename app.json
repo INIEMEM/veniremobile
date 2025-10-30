@@ -5,6 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "scheme": "veniremobile",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -35,15 +36,14 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "7f7dc1d9-03c3-42d3-a51d-c5cf5bbdd7ab"
+        "projectId": "303ff20a-7282-4513-bb59-8c0331fcc04e"
       }
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "owner": "iniememdavid",
     "updates": {
-      "url": "https://u.expo.dev/7f7dc1d9-03c3-42d3-a51d-c5cf5bbdd7ab"
+      "url": "https://u.expo.dev/303ff20a-7282-4513-bb59-8c0331fcc04e"
     }
   }
 }
