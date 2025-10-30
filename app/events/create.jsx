@@ -777,7 +777,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: '#444',
+    color: '#333',
     marginBottom: 8,
     fontFamily: 'Poppins_500Medium',
     fontWeight: '500',
