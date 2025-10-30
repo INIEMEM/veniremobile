@@ -30,6 +30,7 @@ export default function CreateEvent() {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [selectedImages, setSelectedImages] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState('');
 
   const [form, setForm] = useState({
     name: '',
@@ -134,6 +135,93 @@ export default function CreateEvent() {
     return date.toISOString();
   };
 
+  // Step 1: Get S3 signed URL
+  const getSignedUrl = async (fileName, fileType) => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+     
+      const response = await api.put(
+        '/auth/sign-s3',
+        {
+          fileName: fileName,
+          fileType: fileType,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+     
+
+      return response.data;
+    } catch (error) {
+      console.error('Error getting signed URL:', error);
+      throw error;
+    }
+  };
+
+  // Step 2: Upload image to S3
+  const uploadImageToS3 = async (imageUri, uploadURL) => {
+    try {
+      // Fetch the image as blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      // Upload to S3
+      const uploadResponse = await fetch(uploadURL, {
+        method: 'PUT',
+        body: blob,
+        headers: {
+          'Content-Type': blob.type,
+        },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload image to S3');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error uploading to S3:', error);
+      throw error;
+    }
+  };
+
+  // Step 3: Upload all images and get their URLs
+  const uploadAllImages = async () => {
+    const uploadedUrls = [];
+
+    for (let i = 0; i < selectedImages.length; i++) {
+      const image = selectedImages[i];
+      setUploadProgress(`Uploading image ${i + 1} of ${selectedImages.length}...`);
+
+      try {
+        // Get signed URL from backend
+        const signedData = await getSignedUrl(image.name, image.type);
+        const { uploadURL } = signedData;
+      
+        // console.log('the upload Url', image.uri)
+        // Upload to S3
+        await uploadImageToS3(image.uri, uploadURL);
+
+        // Extract the base URL (without query parameters)
+        const imageUrl = uploadURL.split('?')[0];
+
+        
+        uploadedUrls.push(imageUrl);
+      } catch (error) {
+        console.error(`Error uploading image ${i + 1}:`, error);
+        throw new Error(`Failed to upload image ${i + 1}`);
+      }
+    }
+
+    setUploadProgress('');
+    return uploadedUrls;
+  };
+
   const handleCreateEvent = async () => {
     const {
       name,
@@ -206,36 +294,37 @@ export default function CreateEvent() {
 
     try {
       setIsSubmitting(true);
+
+      // Step 1: Upload images to S3
+      setUploadProgress('Uploading images...');
+      const uploadedImageUrls = await uploadAllImages();
+
+      console.log('the group upload', uploadedImageUrls)
+
+      // Step 2: Create event with image URLs
+      setUploadProgress('Creating event...');
       const token = await AsyncStorage.getItem('token');
 
-      // Create FormData
-      const formData = new FormData();
-      formData.append('name', name.trim());
-      formData.append('description', description.trim());
-      formData.append('address', address.trim());
-      formData.append('lat', form.lat || '0');
-      formData.append('long', form.long || '0');
-      formData.append('capacity', capacity.toString());
-      formData.append('isTicket', isTicket);
-      formData.append('ticketAmount', isTicket ? parseFloat(ticketAmount) || 0 : 0);
-      formData.append('isSponsored', isSponsored);
-      formData.append('sponsorAmount', isSponsored ? parseFloat(sponsorAmount) || 0 : 0);
-      formData.append('start', formatDateTime(form.start));
-      formData.append('end', formatDateTime(form.end));
-      formData.append('categoryId', categoryId);
+      const eventData = {
+        name: name.trim(),
+        description: description.trim(),
+        address: address.trim(),
+        lat: form.lat || '0',
+        long: form.long || '0',
+        capacity: capacity,
+        isTicket: isTicket,
+        ticketAmount: isTicket ? parseFloat(ticketAmount) || 0 : 0,
+        isSponsored: isSponsored,
+        sponsorAmount: isSponsored ? parseFloat(sponsorAmount) || 0 : 0,
+        start: formatDateTime(form.start),
+        end: formatDateTime(form.end),
+        categoryId: categoryId,
+        images: uploadedImageUrls, // Array of S3 URLs
+      };
 
-      // Append images to FormData
-      selectedImages.forEach((image, index) => {
-        formData.append('image', {
-          uri: image.uri,
-          type: image.type,
-          name: image.name,
-        });
-      });
-
-      const response = await api.post('/event', formData, {
+      const response = await api.post('/event', eventData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
       });
@@ -251,6 +340,7 @@ export default function CreateEvent() {
       console.error('Error creating event:', error.response || error);
       const message =
         error.response?.data?.message ||
+        error.message ||
         'Failed to create event. Please try again.';
       Toast.show({
         type: 'error',
@@ -259,6 +349,7 @@ export default function CreateEvent() {
       });
     } finally {
       setIsSubmitting(false);
+      setUploadProgress('');
     }
   };
 
@@ -314,6 +405,13 @@ export default function CreateEvent() {
             <Text style={styles.headerTitle}>Create Event</Text>
             <View style={styles.placeholder} />
           </View>
+
+          {/* Upload Progress */}
+          {uploadProgress !== '' && (
+            <View style={styles.progressContainer}>
+              <Text style={styles.progressText}>{uploadProgress}</Text>
+            </View>
+          )}
 
           {/* Event Images */}
           <View style={styles.inputContainer}>
@@ -596,6 +694,20 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: 40,
+  },
+  progressContainer: {
+    backgroundColor: '#f0f0ff',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#5A31F4',
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#5A31F4',
+    fontFamily: 'Poppins_500Medium',
   },
   inputContainer: {
     marginBottom: 20,
