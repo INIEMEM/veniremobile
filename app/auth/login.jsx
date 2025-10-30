@@ -191,7 +191,7 @@ export default function LoginScreen() {
             },
           ]}
         >
-          <Text style={styles.appName}>Veniressss</Text>
+          <Text style={styles.appName}>Venire</Text>
           <Text style={styles.welcomeText}>Welcome back, log in to discover</Text>
           <Text style={styles.welcomeText}>new events!</Text>
         </Animated.View>

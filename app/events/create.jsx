@@ -12,6 +12,7 @@ import {
   Animated,
   Switch,
   Image,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
@@ -135,7 +136,6 @@ export default function CreateEvent() {
     return date.toISOString();
   };
 
-  // Step 1: Get S3 signed URL
   const getSignedUrl = async (fileName, fileType) => {
     try {
       const token = await AsyncStorage.getItem('token');
@@ -154,8 +154,6 @@ export default function CreateEvent() {
         }
       );
 
-     
-
       return response.data;
     } catch (error) {
       console.error('Error getting signed URL:', error);
@@ -163,14 +161,11 @@ export default function CreateEvent() {
     }
   };
 
-  // Step 2: Upload image to S3
   const uploadImageToS3 = async (imageUri, uploadURL) => {
     try {
-      // Fetch the image as blob
       const response = await fetch(imageUri);
       const blob = await response.blob();
 
-      // Upload to S3
       const uploadResponse = await fetch(uploadURL, {
         method: 'PUT',
         body: blob,
@@ -190,7 +185,6 @@ export default function CreateEvent() {
     }
   };
 
-  // Step 3: Upload all images and get their URLs
   const uploadAllImages = async () => {
     const uploadedUrls = [];
 
@@ -199,18 +193,11 @@ export default function CreateEvent() {
       setUploadProgress(`Uploading image ${i + 1} of ${selectedImages.length}...`);
 
       try {
-        // Get signed URL from backend
         const signedData = await getSignedUrl(image.name, image.type);
         const { uploadURL } = signedData;
       
-        // console.log('the upload Url', image.uri)
-        // Upload to S3
         await uploadImageToS3(image.uri, uploadURL);
-
-        // Extract the base URL (without query parameters)
         const imageUrl = uploadURL.split('?')[0];
-
-        
         uploadedUrls.push(imageUrl);
       } catch (error) {
         console.error(`Error uploading image ${i + 1}:`, error);
@@ -295,13 +282,11 @@ export default function CreateEvent() {
     try {
       setIsSubmitting(true);
 
-      // Step 1: Upload images to S3
       setUploadProgress('Uploading images...');
       const uploadedImageUrls = await uploadAllImages();
 
-      console.log('the group upload', uploadedImageUrls)
+      console.log('the group upload', uploadedImageUrls);
 
-      // Step 2: Create event with image URLs
       setUploadProgress('Creating event...');
       const token = await AsyncStorage.getItem('token');
 
@@ -319,7 +304,7 @@ export default function CreateEvent() {
         start: formatDateTime(form.start),
         end: formatDateTime(form.end),
         categoryId: categoryId,
-        images: uploadedImageUrls, // Array of S3 URLs
+        images: uploadedImageUrls,
       };
 
       const response = await api.post('/event', eventData, {
@@ -354,27 +339,84 @@ export default function CreateEvent() {
   };
 
   const onStartChange = (event, selectedDate) => {
-    setShowStartPicker(false);
-    if (selectedDate) {
-      handleChange('start', selectedDate);
-      if (form.end <= selectedDate) {
-        handleChange('end', new Date(selectedDate.getTime() + 3600000));
+    const currentDate = selectedDate || form.start;
+    
+    if (Platform.OS === 'android') {
+      setShowStartPicker(false);
+    }
+    
+    if (event.type === 'set' && selectedDate) {
+      handleChange('start', currentDate);
+      if (form.end <= currentDate) {
+        handleChange('end', new Date(currentDate.getTime() + 3600000));
       }
+    }
+    
+    if (event.type === 'dismissed') {
+      setShowStartPicker(false);
     }
   };
 
   const onEndChange = (event, selectedDate) => {
-    setShowEndPicker(false);
-    if (selectedDate && selectedDate > form.start) {
-      handleChange('end', selectedDate);
-    } else {
-      Toast.show({
-        type: 'error',
-        text1: 'Invalid Date',
-        text2: 'End date must be after start date',
-      });
+    const currentDate = selectedDate || form.end;
+    
+    if (Platform.OS === 'android') {
+      setShowEndPicker(false);
+    }
+    
+    if (event.type === 'set' && selectedDate) {
+      if (currentDate > form.start) {
+        handleChange('end', currentDate);
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid Date',
+          text2: 'End date must be after start date',
+        });
+      }
+    }
+    
+    if (event.type === 'dismissed') {
+      setShowEndPicker(false);
     }
   };
+
+  const closeDatePicker = () => {
+    setShowStartPicker(false);
+    setShowEndPicker(false);
+  };
+
+  // iOS Date Picker Modal Component
+  const IOSDatePickerModal = ({ visible, value, onClose, onChange, minimumDate }) => (
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay} 
+        activeOpacity={1}
+        onPress={onClose}
+      >
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={styles.modalButton}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <DateTimePicker
+            value={value}
+            mode="datetime"
+            display="spinner"
+            onChange={onChange}
+            minimumDate={minimumDate}
+            textColor="#000"
+          />
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
 
   return (
     <KeyboardAvoidingView
@@ -636,23 +678,44 @@ export default function CreateEvent() {
       </ScrollView>
 
       {/* Date Pickers */}
-      {showStartPicker && (
-        <DateTimePicker
-          value={form.start}
-          mode="datetime"
-          display="default"
-          onChange={onStartChange}
-        />
-      )}
-
-      {showEndPicker && (
-        <DateTimePicker
-          value={form.end}
-          mode="datetime"
-          display="default"
-          onChange={onEndChange}
-          minimumDate={form.start}
-        />
+      {Platform.OS === 'ios' ? (
+        <>
+          <IOSDatePickerModal
+            visible={showStartPicker}
+            value={form.start}
+            onClose={() => setShowStartPicker(false)}
+            onChange={onStartChange}
+            minimumDate={new Date()}
+          />
+          <IOSDatePickerModal
+            visible={showEndPicker}
+            value={form.end}
+            onClose={() => setShowEndPicker(false)}
+            onChange={onEndChange}
+            minimumDate={form.start}
+          />
+        </>
+      ) : (
+        <>
+          {showStartPicker && (
+            <DateTimePicker
+              value={form.start}
+              mode="datetime"
+              display="default"
+              onChange={onStartChange}
+              minimumDate={new Date()}
+            />
+          )}
+          {showEndPicker && (
+            <DateTimePicker
+              value={form.end}
+              mode="datetime"
+              display="default"
+              onChange={onEndChange}
+              minimumDate={form.start}
+            />
+          )}
+        </>
       )}
     </KeyboardAvoidingView>
   );
@@ -862,5 +925,28 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     fontFamily: 'Poppins_600SemiBold',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalButton: {
+    fontSize: 17,
+    color: '#5A31F4',
+    fontWeight: '600',
   },
 });
