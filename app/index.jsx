@@ -15,7 +15,7 @@ export default function Index() {
 
       const onboarded = await AsyncStorage.getItem("onboardingDone");
       const token = await AsyncStorage.getItem("token");
-      
+      console.log("token:", token)
       const isGuest = await AsyncStorage.getItem("isGuest");
       // console.log("Token:", isGuest);
       if (!onboarded) router.replace("/onboarding/step1");
