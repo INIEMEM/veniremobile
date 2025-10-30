@@ -366,13 +366,13 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     backgroundColor: "#5A31F4",
-    shadowColor: "#5A31F4",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
+    // shadowColor: "#5A31F4",
+    // shadowOffset: {
+    //   width: 0,
+    //   height: 4,
+    // },
+    // shadowOpacity: 0.3,
+    // shadowRadius: 4.65,
     elevation: 8,
   },
   loginText: {
@@ -383,14 +383,14 @@ const styles = StyleSheet.create({
   },
   signupButton: {
     backgroundColor: "#F3EDFF",
-    shadowColor: "#5A31F4",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    // shadowColor: "#5A31F4",
+    // shadowOffset: {
+    //   width: 0,
+    //   height: 2,
+    // },
+    // shadowOpacity: 0.1,
+    // shadowRadius: 3,
+    // elevation: 3,
   },
   signupText: {
     color: "#5A31F4",
@@ -400,13 +400,13 @@ const styles = StyleSheet.create({
   },
   exploreButton: {
     backgroundColor: "#eee",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    // shadowColor: "#000",
+    // shadowOffset: {
+    //   width: 0,
+    //   height: 1,
+    // },
+    // shadowOpacity: 0.1,
+    // shadowRadius: 2,
     elevation: 2,
   },
   exploreText: {
