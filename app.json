@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "veniremobile",
+    "name": "venire",
     "slug": "veniremobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/splash.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
