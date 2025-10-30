@@ -32,6 +32,7 @@ export default function CreateEvent() {
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [selectedImages, setSelectedImages] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
+  const pickerTimeoutRef = useRef(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -44,8 +45,8 @@ export default function CreateEvent() {
     ticketAmount: '0',
     isSponsored: false,
     sponsorAmount: '0',
-    start: new Date(),
-    end: new Date(Date.now() + 3600000),
+    start: '',
+    end: '',
     categoryId: '',
   });
 
@@ -132,9 +133,9 @@ export default function CreateEvent() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const formatDateTime = (date) => {
-    return date.toISOString();
-  };
+  // const formatDateTime = (date) => {
+  //   return date.toISOString();
+  // };
 
   const getSignedUrl = async (fileName, fileType) => {
     try {
@@ -301,8 +302,10 @@ export default function CreateEvent() {
         ticketAmount: isTicket ? parseFloat(ticketAmount) || 0 : 0,
         isSponsored: isSponsored,
         sponsorAmount: isSponsored ? parseFloat(sponsorAmount) || 0 : 0,
-        start: formatDateTime(form.start),
-        end: formatDateTime(form.end),
+        // start: formatDateTime(form.start),
+        start: form.start,
+        // end: formatDateTime(form.end),
+        end: form.end,
         categoryId: categoryId,
         images: uploadedImageUrls,
       };
@@ -338,85 +341,87 @@ export default function CreateEvent() {
     }
   };
 
-  const onStartChange = (event, selectedDate) => {
-    const currentDate = selectedDate || form.start;
+  // useEffect(() => {
+  //   return () => {
+  //     if (pickerTimeoutRef.current) {
+  //       clearTimeout(pickerTimeoutRef.current);
+  //     }
+  //   };
+  // }, []);
+  
+  // const onStartChange = (event, selectedDate) => {
+  //   if (event.type === 'set' && selectedDate) {
+  //     handleChange('start', selectedDate);
+  //     if (form.end <= selectedDate) {
+  //       handleChange('end', new Date(selectedDate.getTime() + 3600000));
+  //     }
+  //   }
     
-    if (Platform.OS === 'android') {
-      setShowStartPicker(false);
-    }
+  //   // Use ref-based timeout for cleanup
+  //   if (Platform.OS === 'android') {
+  //     pickerTimeoutRef.current = setTimeout(() => {
+  //       setShowStartPicker(false);
+  //       pickerTimeoutRef.current = null;
+  //     }, 150);
+  //   } else if (event.type === 'dismissed') {
+  //     setShowStartPicker(false);
+  //   }
+  // };
+  
+  // const onEndChange = (event, selectedDate) => {
+  //   if (event.type === 'set' && selectedDate) {
+  //     if (selectedDate > form.start) {
+  //       handleChange('end', selectedDate);
+  //     } else {
+  //       Toast.show({
+  //         type: 'error',
+  //         text1: 'Invalid Date',
+  //         text2: 'End date must be after start date',
+  //       });
+  //     }
+  //   }
     
-    if (event.type === 'set' && selectedDate) {
-      handleChange('start', currentDate);
-      if (form.end <= currentDate) {
-        handleChange('end', new Date(currentDate.getTime() + 3600000));
-      }
-    }
-    
-    if (event.type === 'dismissed') {
-      setShowStartPicker(false);
-    }
-  };
-
-  const onEndChange = (event, selectedDate) => {
-    const currentDate = selectedDate || form.end;
-    
-    if (Platform.OS === 'android') {
-      setShowEndPicker(false);
-    }
-    
-    if (event.type === 'set' && selectedDate) {
-      if (currentDate > form.start) {
-        handleChange('end', currentDate);
-      } else {
-        Toast.show({
-          type: 'error',
-          text1: 'Invalid Date',
-          text2: 'End date must be after start date',
-        });
-      }
-    }
-    
-    if (event.type === 'dismissed') {
-      setShowEndPicker(false);
-    }
-  };
-
-  const closeDatePicker = () => {
-    setShowStartPicker(false);
-    setShowEndPicker(false);
-  };
-
+  //   // Use ref-based timeout for cleanup
+  //   if (Platform.OS === 'android') {
+  //     pickerTimeoutRef.current = setTimeout(() => {
+  //       setShowEndPicker(false);
+  //       pickerTimeoutRef.current = null;
+  //     }, 150);
+  //   } else if (event.type === 'dismissed') {
+  //     setShowEndPicker(false);
+  //   }
+  // };
   // iOS Date Picker Modal Component
-  const IOSDatePickerModal = ({ visible, value, onClose, onChange, minimumDate }) => (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <TouchableOpacity 
-        style={styles.modalOverlay} 
-        activeOpacity={1}
-        onPress={onClose}
-      >
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={onClose}>
-              <Text style={styles.modalButton}>Done</Text>
-            </TouchableOpacity>
-          </View>
-          <DateTimePicker
-            value={value}
-            mode="datetime"
-            display="spinner"
-            onChange={onChange}
-            minimumDate={minimumDate}
-            textColor="#000"
-          />
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
+  // const IOSDatePickerModal = ({ visible, value, onClose, onChange, minimumDate }) => (
+  //   <Modal
+  //     visible={visible}
+  //     transparent={true}
+  //     animationType="slide"
+  //     onRequestClose={onClose}
+  //   >
+  //     <TouchableOpacity 
+  //       style={styles.modalOverlay} 
+  //       activeOpacity={1}
+  //       onPress={onClose}
+  //     >
+  //       <View style={styles.modalContent}>
+  //         <View style={styles.modalHeader}>
+  //           <TouchableOpacity onPress={onClose}>
+  //             <Text style={styles.modalButton}>Done</Text>
+  //           </TouchableOpacity>
+  //         </View>
+  //         <DateTimePicker
+  //           value={value}
+  //           mode="datetime"
+  //           display="spinner"
+  //           onChange={onChange}
+  //           minimumDate={minimumDate}
+  //           textColor="#000"
+  //         />
+  //       </View>
+  //     </TouchableOpacity>
+  //   </Modal>
+  // );
 
   return (
     <KeyboardAvoidingView
@@ -599,22 +604,27 @@ export default function CreateEvent() {
           {/* Date & Time */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Start Date & Time *</Text>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={styles.dateButton}
-              onPress={() => setShowStartPicker(true)}
-            >
-              <Text style={styles.dateText}>{form.start.toLocaleString()}</Text>
-            </TouchableOpacity>
+              // onPress={() => setShowStartPicker(true)}
+            > */}
+              <TextInput style={styles.input} value={form.start} onChangeText={(text) => handleChange('start', text)}
+              placeholder="e.g., 18/07/2024 10:00 AM"
+              placeholderTextColor="#999"/>
+            
           </View>
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>End Date & Time *</Text>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={styles.dateButton}
               onPress={() => setShowEndPicker(true)}
             >
               <Text style={styles.dateText}>{form.end.toLocaleString()}</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
+             <TextInput style={styles.input} value={form.end} onChangeText={(text) => handleChange('end', text)}
+              placeholder="e.g., 18/07/2024 10:00 AM"
+              placeholderTextColor="#999"/>
           </View>
 
           {/* Ticketing */}
@@ -678,7 +688,7 @@ export default function CreateEvent() {
       </ScrollView>
 
       {/* Date Pickers */}
-      {Platform.OS === 'ios' ? (
+      {/* {Platform.OS === 'ios' ? (
         <>
           <IOSDatePickerModal
             visible={showStartPicker}
@@ -716,7 +726,7 @@ export default function CreateEvent() {
             />
           )}
         </>
-      )}
+      )} */}
     </KeyboardAvoidingView>
   );
 }
@@ -777,7 +787,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: '#333',
+    color: '#444',
     marginBottom: 8,
     fontFamily: 'Poppins_500Medium',
     fontWeight: '500',
