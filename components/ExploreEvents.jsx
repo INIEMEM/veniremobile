@@ -9,6 +9,7 @@ import {
   Animated,
   ActivityIndicator,
   RefreshControl,
+  
 } from "react-native";
 import { Dimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,19 +19,65 @@ import api from "../utils/axiosInstance";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 
-export default function ExploreEvents({ userId = null }) {
+export default function ExploreEvents({ userId = null, events: propEvents = null }) {
   const router = useRouter();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const animations = useRef({}).current;
 
-  // Fetch events on mount
+  // Fetch events on mount - only if events prop is not provided
   useEffect(() => {
-    fetchEvents();
-  }, [userId]);
+    if (propEvents) {
+      // Use provided events and process them
+      processEvents(propEvents);
+    } else {
+      fetchEvents();
+    }
+  }, [userId, propEvents]);
+
+  const processEvents = async (eventsData) => {
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem("token");
+      
+      const eventsWithCounts = await Promise.all(
+        eventsData.map(async (event) => {
+          try {
+            // Fetch comments count
+            const commentsResponse = await api.get(
+              `/event/comment?eventId=${event._id}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            
+            const commentCount = commentsResponse.data?.count || 0;
+            const likeCount = event.likes?.length || event.likeCount || 0;
+            
+            return {
+              ...event,
+              totalComments: commentCount,
+              totalLikes: likeCount,
+            };
+          } catch (error) {
+            console.error(`Error fetching counts for event ${event._id}:`, error);
+            return {
+              ...event,
+              totalComments: 0,
+              totalLikes: 0,
+            };
+          }
+        })
+      );
+      
+      setEvents(eventsWithCounts);
+    } catch (error) {
+      console.error("Error processing events:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchEvents = async () => {
     try {
@@ -48,38 +95,8 @@ export default function ExploreEvents({ userId = null }) {
 
       if (response.data.success) {
         const data = response?.data?.data;
-        const eventsData = Array.isArray(data) ? data : [data]; 
-        const eventsWithCounts = await Promise.all(
-          eventsData?.map(async (event) => {
-            try {
-              // Fetch comments count
-              const commentsResponse = await api.get(
-                `/event/comment?eventId=${event._id}`,
-                { headers: { Authorization: `Bearer ${token}` } }
-              );
-              
-              const commentCount = commentsResponse.data?.count || 0;
-              
-              // Get likes count from event data (assuming it has a likes array or count)
-              const likeCount = event.likes?.length || event.likeCount || 0;
-              
-              return {
-                ...event,
-                totalComments: commentCount,
-                totalLikes: likeCount,
-              };
-            } catch (error) {
-              console.error(`Error fetching counts for event ${event._id}:`, error);
-              return {
-                ...event,
-                totalComments: 0,
-                totalLikes: 0,
-              };
-            }
-          })
-        );
-        
-        setEvents(eventsWithCounts);
+        const eventsData = Array.isArray(data) ? data : [data];
+        await processEvents(eventsData);
       }
     } catch (error) {
       console.error("Error fetching events:", error);
@@ -95,7 +112,11 @@ export default function ExploreEvents({ userId = null }) {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchEvents();
+    if (propEvents) {
+      await processEvents(propEvents);
+    } else {
+      await fetchEvents();
+    }
     setRefreshing(false);
   };
 
@@ -190,19 +211,31 @@ export default function ExploreEvents({ userId = null }) {
   };
 
   // Handle Interested
-  const handleInterested = async (eventId) => {
+  const handleInterested = async (eventId, isInterested) => {
     try {
       const token = await AsyncStorage.getItem("token");
-
+      const endpoint = isInterested ? "/event/interest-cancel" : "/event/interest";
+  
       await api.post(
-        "/event/interest",
+        endpoint,
         { eventId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
+  
+      // Update local state immediately
+      setEvents((prev) =>
+        prev.map((event) =>
+          event._id === eventId
+            ? { ...event, hasInterested: !isInterested }
+            : event
+        )
+      );
+  
       Toast.show({
         type: "success",
-        text1: "Marked as interested",
+        text1: isInterested
+          ? "Interest cancelled"
+          : "Marked as interested",
       });
     } catch (error) {
       console.error("Error marking interest:", error);
@@ -272,10 +305,21 @@ export default function ExploreEvents({ userId = null }) {
 
         return (
           <View style={styles.eventCard} key={event._id}>
-            <Text style={styles.host}>
-              {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
-            </Text>
-            <Text style={styles.roles}>{event.userId?.email || ""}</Text>
+            <View style={styles.hostRow}>
+              {/* I want to add the image here */}
+              <Image
+                  source={{
+                    uri:
+                      event.userId?.profileImage ||
+                      "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                  }}
+                  style={styles.hostAvatar}
+                />
+              <Text style={styles.host}>
+                {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
+              </Text>
+            </View>
+            {/* <Text style={styles.roles}>{event.userId?.email || ""}</Text> */}
 
             <Text style={[styles.host, { marginTop: 20 }]}>Event Description</Text>
             <TouchableOpacity
@@ -311,11 +355,17 @@ export default function ExploreEvents({ userId = null }) {
 
             <View style={styles.priceRow}>
               <TouchableOpacity
-                style={styles.interestedBtn}
-                onPress={() => handleInterested(event._id)}
+                style={[
+                  styles.interestedBtn,
+                  event.hasInterested && { backgroundColor: "#ccc" },
+                ]}
+                onPress={() => handleInterested(event._id, event.hasInterested)}
               >
-                <Text style={styles.interestedText}>Interested</Text>
+                <Text style={styles.interestedText}>
+                  {event.hasInterested ? "Cancel Interest" : "Interested"}
+                </Text>
               </TouchableOpacity>
+
               <Text style={styles.price}>
                 {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
               </Text>
@@ -380,7 +430,6 @@ export default function ExploreEvents({ userId = null }) {
 const styles = StyleSheet.create({
   container: {
     paddingVertical: 10,
-    // paddingHorizontal: 15,
   },
   centerContainer: {
     flex: 1,
@@ -405,7 +454,7 @@ const styles = StyleSheet.create({
   host: {
     fontFamily: "Poppins_600SemiBold",
     fontSize: 14,
-    color: "#222",
+    color: "#444",
   },
   roles: {
     fontFamily: "Poppins_400Regular",
@@ -420,7 +469,7 @@ const styles = StyleSheet.create({
   },
   flier: {
     width: "100%",
-    height: 150,
+    height: height*0.5,
     borderRadius: 8,
   },
   eventTitle: {
@@ -521,4 +570,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 5,
   },
+  hostRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 5,
+  },
+  
+  hostAvatar: {
+    width: 35,
+    height: 35,
+    borderRadius: 50,
+    backgroundColor: "#ddd",
+  },
+  
 });

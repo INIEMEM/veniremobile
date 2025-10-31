@@ -16,7 +16,9 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import useCustomDatePicker from "../utils/useCustomDatePicker";
 export default function EditProfile() {
+  const { open, PickerModal, selectedDate, formatDate } = useCustomDatePicker();
   const { user, setUser } = useAuth();
   const router = useRouter();
   const [showPicker, setShowPicker] = useState(false);
@@ -28,9 +30,12 @@ export default function EditProfile() {
     gender: "",
     about: "",
     state: "",
-    dob: new Date(),
+    dob: '',
+    city: '',
   });
-
+  const handleDateSelect = (date) => {
+    if (date) handleChange("dob", date.toISOString());
+  };
   const [loading, setLoading] = useState(false);
 
   // ✅ Prefill the form when user data is available
@@ -45,7 +50,7 @@ export default function EditProfile() {
         about: user.about || "",
         state: user.state || "",
         dob: user.dob || "",
-
+        city: user.city || "",
       });
     }
   }, [user]);
@@ -122,9 +127,33 @@ export default function EditProfile() {
         />
       </View>
       <View style={styles.formGroup}>
+        <Text style={styles.label}>City</Text>
+        <TextInput
+          style={styles.input}
+          value={form.city}
+          onChangeText={(text) => handleChange("city", text)}
+          placeholder="Enter state"
+        />
+      </View>
+      <View style={styles.formGroup}>
         <Text style={styles.label}>Date of Birth</Text>
+        <TextInput
+          style={styles.input}
+          value={form.dob}
+          onChangeText={(text) => handleChange("dob", text)}
+          placeholder="(YYYY-MM-DD)"
+        />
+        {/* <TouchableOpacity style={styles.input} onPress={open}>
+          <Text style={{ color: form.dob ? "#333" : "#aaa" }}>
+            {form.dob
+              ? formatDate(form.dob)
+              : "Select your date of birth"}
+          </Text>
+        </TouchableOpacity> */}
 
-        <TouchableOpacity
+          {/* Custom Picker Modal */}
+          {/* <PickerModal onSelect={handleDateSelect} /> */}
+            {/* <TouchableOpacity
               style={styles.input}
               onPress={() => setShowPicker(true)}
             >
@@ -133,9 +162,9 @@ export default function EditProfile() {
                   ? new Date(form.dob).toDateString()
                   : "Select your date of birth"}
               </Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
-            {showPicker && (
+            {/* {showPicker && (
               <DateTimePicker
                 value={form.dob ? new Date(form.dob) : new Date()}
                 mode="date"
@@ -146,7 +175,7 @@ export default function EditProfile() {
                   if (selectedDate) handleChange("dob", selectedDate);
                 }}
               />
-            )}
+            )} */}
        </View>
       <View style={styles.formGroup}>
         <Text style={styles.label}>Country</Text>

@@ -12,15 +12,18 @@ import {
   Animated,
   Switch,
   Image,
-  Modal,
+  TouchableWithoutFeedback,
+  Keyboard
+  
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
 import api from '../../utils/axiosInstance';
 import CustomLoader from '../../components/CustomFormLoader';
-import DateTimePicker from '@react-native-community/datetimepicker';
+// import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import useCustomDateTimePicker from '../../utils/useCustomDatePicker';
 
 const { width, height } = Dimensions.get('window');
 
@@ -30,6 +33,7 @@ export default function CreateEvent() {
   const [categories, setCategories] = useState([]);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const { open, PickerModal, formatDateTime, selectedDateTime } = useCustomDateTimePicker();
   const [selectedImages, setSelectedImages] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
   const pickerTimeoutRef = useRef(null);
@@ -264,13 +268,13 @@ export default function CreateEvent() {
       });
     }
 
-    if (form.start >= form.end) {
-      return Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'End date must be after start date',
-      });
-    }
+    // if (form.start >= form.end) {
+    //   return Toast.show({
+    //     type: 'error',
+    //     text1: 'Validation Error',
+    //     text2: 'End date must be after start date',
+    //   });
+    // }
 
     if (selectedImages.length === 0) {
       return Toast.show({
@@ -290,7 +294,12 @@ export default function CreateEvent() {
 
       setUploadProgress('Creating event...');
       const token = await AsyncStorage.getItem('token');
-
+      const startDate = new Date(
+        `${form.startYear}-${form.startMonth}-${form.startDay}T00:00:00.000Z`
+      );
+      const endDate = new Date(
+        `${form.endYear}-${form.endMonth}-${form.endDay}T00:00:00.000Z`
+      );
       const eventData = {
         name: name.trim(),
         description: description.trim(),
@@ -303,9 +312,8 @@ export default function CreateEvent() {
         isSponsored: isSponsored,
         sponsorAmount: isSponsored ? parseFloat(sponsorAmount) || 0 : 0,
         // start: formatDateTime(form.start),
-        start: form.start,
-        // end: formatDateTime(form.end),
-        end: form.end,
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
         categoryId: categoryId,
         images: uploadedImageUrls,
       };
@@ -424,7 +432,8 @@ export default function CreateEvent() {
   // );
 
   return (
-    <KeyboardAvoidingView
+   <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+       <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
@@ -602,30 +611,90 @@ export default function CreateEvent() {
           </View>
 
           {/* Date & Time */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Start Date & Time *</Text>
-            {/* <TouchableOpacity
-              style={styles.dateButton}
-              // onPress={() => setShowStartPicker(true)}
-            > */}
-              <TextInput style={styles.input} value={form.start} onChangeText={(text) => handleChange('start', text)}
-              placeholder="e.g., 18/07/2024 10:00 AM"
-              placeholderTextColor="#999"/>
-            
-          </View>
+          {/* Start Date & Time */}
+<View style={styles.inputContainer}>
+  <Text style={styles.label}>Start Date & Time *</Text>
+  <View style={styles.dateTimeRow}>
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="DD"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(day) => handleChange('startDay', day)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="MM"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(month) => handleChange('startMonth', month)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 2 }]}
+      placeholder="YYYY"
+      maxLength={4}
+      keyboardType="number-pad"
+      onChangeText={(year) => handleChange('startYear', year)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="HH"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(hour) => handleChange('startHour', hour)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="MM"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(minute) => handleChange('startMinute', minute)}
+    />
+  </View>
+</View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>End Date & Time *</Text>
-            {/* <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => setShowEndPicker(true)}
-            >
-              <Text style={styles.dateText}>{form.end.toLocaleString()}</Text>
-            </TouchableOpacity> */}
-             <TextInput style={styles.input} value={form.end} onChangeText={(text) => handleChange('end', text)}
-              placeholder="e.g., 18/07/2024 10:00 AM"
-              placeholderTextColor="#999"/>
-          </View>
+{/* End Date & Time */}
+<View style={styles.inputContainer}>
+  <Text style={styles.label}>End Date & Time *</Text>
+  <View style={styles.dateTimeRow}>
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="DD"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(day) => handleChange('endDay', day)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="MM"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(month) => handleChange('endMonth', month)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 2 }]}
+      placeholder="YYYY"
+      maxLength={4}
+      keyboardType="number-pad"
+      onChangeText={(year) => handleChange('endYear', year)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="HH"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(hour) => handleChange('endHour', hour)}
+    />
+    <TextInput
+      style={[styles.dateTimeInput, { flex: 1 }]}
+      placeholder="MM"
+      maxLength={2}
+      keyboardType="number-pad"
+      onChangeText={(minute) => handleChange('endMinute', minute)}
+    />
+  </View>
+</View>
+
 
           {/* Ticketing */}
           <View style={styles.switchContainer}>
@@ -728,6 +797,7 @@ export default function CreateEvent() {
         </>
       )} */}
     </KeyboardAvoidingView>
+   </TouchableWithoutFeedback>
   );
 }
 
@@ -958,5 +1028,21 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: '#5A31F4',
     fontWeight: '600',
+  },
+  dateTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  dateTimeInput: {
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    textAlign: 'center',
+    backgroundColor: '#fafafa',
+    fontSize: 15,
+    color: '#333',
+    fontFamily: 'Poppins_400Regular',
   },
 });

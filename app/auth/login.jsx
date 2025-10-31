@@ -27,7 +27,7 @@ import {
 } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
-
+import * as Linking from 'expo-linking';
 // Required for OAuth flow
 WebBrowser.maybeCompleteAuthSession();
 
@@ -168,12 +168,13 @@ export default function LoginScreen() {
       const redirectUrl = AuthSession.makeRedirectUri({
         scheme: "veniremobile",
         path: "/oauth-native-callback",
+        preferLocalhost: true,
       });
-      
+     console.log("Redirect URL for OAuth:", redirectUrl);
       const { createdSessionId, setActive, signUp, signIn } = await startOAuthFlow({
         redirectUrl,
       });
-
+      
       if (createdSessionId) {
         await setActive({ session: createdSessionId });
         
@@ -412,7 +413,7 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           {/* Google Sign-In/Out Buttons */}
-          {isSignedIn && isLoaded ? (
+          {/* {isSignedIn && isLoaded ? (
             <TouchableOpacity
               style={[styles.button, styles.googleSignOutButton]}
               onPress={handleGoogleSignOut}
@@ -431,15 +432,12 @@ export default function LoginScreen() {
               activeOpacity={0.8}
             >
               <View style={styles.googleButtonContent}>
-                {/* Uncomment when you have the icon */}
-                {/* <Image
-                  source={require("../../assets/google-icon.png")}
-                  style={styles.googleIcon}
-                /> */}
+               
+               
                 <Text style={styles.googleText}>Continue with Google</Text>
               </View>
             </TouchableOpacity>
-          )}
+          )} */}
 
           {/* OR Divider */}
           <View style={styles.dividerContainer}>

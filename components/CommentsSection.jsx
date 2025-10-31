@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -22,7 +22,10 @@ export default function CommentsSection({ eventId }) {
   const [refreshing, setRefreshing] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  console.log('the event id', eventId)
+  const flatListRef = useRef(null);
+  
+  console.log('the event id', eventId);
+  
   useEffect(() => {
     if (eventId) {
       fetchComments();
@@ -39,7 +42,6 @@ export default function CommentsSection({ eventId }) {
       });
 
       if (response.data) {
-        // Filter only top-level comments (depth: 0 or commentId: null)
         const topLevelComments = response.data.data.filter(
           (comment) => comment.depth === 0 || comment.commentId === null
         );
@@ -81,7 +83,6 @@ export default function CommentsSection({ eventId }) {
         message: message.trim(),
       };
 
-      // If replying to a comment, add commentId
       if (replyingTo) {
         payload.commentId = replyingTo._id;
       }
@@ -95,10 +96,7 @@ export default function CommentsSection({ eventId }) {
         text1: replyingTo ? "Reply posted" : "Comment posted",
       });
 
-      // Clear reply state
       setReplyingTo(null);
-
-      // Refresh comments to show new comment/reply
       await fetchComments();
     } catch (error) {
       console.error("Error posting comment:", error);
@@ -109,6 +107,7 @@ export default function CommentsSection({ eventId }) {
       });
     } finally {
       setSubmitting(false);
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }
   };
 
@@ -142,7 +141,7 @@ export default function CommentsSection({ eventId }) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={100}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
       <View style={styles.header}>
         <Text style={styles.headerText}>
@@ -157,6 +156,7 @@ export default function CommentsSection({ eventId }) {
         </View>
       ) : (
         <FlatList
+          ref={flatListRef}
           data={comments}
           renderItem={renderComment}
           keyExtractor={(item) => item._id}
@@ -164,7 +164,9 @@ export default function CommentsSection({ eventId }) {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          contentContainerStyle={styles.listContainer}
+          contentContainerStyle={styles.listContent}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
         />
       )}
 
@@ -222,7 +224,7 @@ const styles = StyleSheet.create({
     color: "#bbb",
     marginTop: 5,
   },
-  listContainer: {
-    paddingVertical: 10,
+  listContent: {
+    paddingBottom: 10,
   },
 });

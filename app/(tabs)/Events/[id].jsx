@@ -9,6 +9,7 @@ import {
   Animated,
   ActivityIndicator,
   RefreshControl,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Dimensions } from "react-native";
@@ -22,7 +23,7 @@ import api from "../../../utils/axiosInstance";
 const { width } = Dimensions.get("window");
 
 export default function EventDetailsScreen() {
-  const { id } = useLocalSearchParams(); // Get event ID from route
+  const { id } = useLocalSearchParams();
   const router = useRouter();
   const animations = useRef({}).current;
   
@@ -67,7 +68,6 @@ export default function EventDetailsScreen() {
     setRefreshing(false);
   };
 
-  // Handle Like with animation
   const handleLike = async () => {
     if (!event) return;
 
@@ -118,7 +118,6 @@ export default function EventDetailsScreen() {
     }
   };
 
-  // Handle Bookmark
   const handleBookmark = async () => {
     if (!event) return;
 
@@ -151,7 +150,6 @@ export default function EventDetailsScreen() {
     }
   };
 
-  // Handle Interested
   const handleInterested = async () => {
     if (!event) return;
 
@@ -178,7 +176,6 @@ export default function EventDetailsScreen() {
     }
   };
 
-  // Format date
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
@@ -188,7 +185,6 @@ export default function EventDetailsScreen() {
     });
   };
 
-  // Format time
   const formatTime = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleTimeString("en-US", {
@@ -232,9 +228,8 @@ export default function EventDetailsScreen() {
     "https://via.placeholder.com/40/5A31F4/FFFFFF?text=" +
       (event.userId?.firstname?.charAt(0) || "U");
 
-  
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: "#fff" }}>
       <ScrollView
         style={styles.container}
         showsVerticalScrollIndicator={false}
@@ -381,13 +376,20 @@ export default function EventDetailsScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Comments Section - Conditionally Rendered */}
-      {showComments && (
-        <View style={styles.commentsWrapper}>
-
-          <CommentsSection eventId={event._id} />
+      {/* Comments Section as Modal */}
+      <Modal
+        visible={showComments}
+        animationType="slide"
+        onRequestClose={() => setShowComments(false)}
+      >
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Comments</Text>
+          <TouchableOpacity onPress={() => setShowComments(false)}>
+            <Ionicons name="close" size={28} color="#333" />
+          </TouchableOpacity>
         </View>
-      )}
+        <CommentsSection eventId={event._id} />
+      </Modal>
     </View>
   );
 }
@@ -589,10 +591,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#5A31F4",
   },
-  commentsWrapper: {
-    flex: 1,
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    paddingTop: 50,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
     backgroundColor: "#fff",
-    borderTopWidth: 2,
-    borderTopColor: "#eee",
+  },
+  modalTitle: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 18,
+    color: "#333",
   },
 });

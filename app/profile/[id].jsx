@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Dimensions,
+  RefreshControl,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,8 +17,10 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../../utils/axiosInstance";
 import ExploreEvents from "../../components/ExploreEvents";
-import { truncateText } from "../../utils/truncateText";
 import { useAuth } from "../../context/AuthContext";
+
+const { width } = Dimensions.get("window");
+
 export default function ProfilePage() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
@@ -24,24 +28,73 @@ export default function ProfilePage() {
   const [userProfile, setUserProfile] = useState(null);
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { user: authUser } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+  const [interestedEvents, setInterestedEvents] = useState([]);
+  const [bookmarkedEvents, setBookmarkedEvents] = useState([]);
+  const { user: authUser, logout } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
   const isMyProfile = loggedInUser?._id === id;
 
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await logout();
+      router.replace("/auth/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
-  // 🧠 Fetch Logged In User + Profile User
+  // Fetch all events and filter by interest/bookmark
+  const fetchFilteredEvents = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      
+      // Fetch all events
+      const response = await api.get("/event", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.data.success) {
+        const allEvents = response.data.data;
+        
+        // Filter events where user has shown interest
+        const interested = allEvents.filter(event => 
+          event.eventInterests?.some(interest => interest.userId === id) ||
+          (event.totalInterest > 0 && event.eventInterests?.length > 0)
+        );
+        
+        // Filter events where user has bookmarked
+        const bookmarked = allEvents.filter(event => 
+          event.bookmark?.includes(id) || event.hasBookmarked
+        );
+        
+        setInterestedEvents(interested);
+        setBookmarkedEvents(bookmarked);
+      }
+    } catch (error) {
+      console.error("Error fetching filtered events:", error);
+    }
+  };
+
+  // Fetch Logged In User + Profile User
   useEffect(() => {
     const fetchData = async () => {
       try {
-        
         const token = await AsyncStorage.getItem("token");
         setLoggedInUser(authUser);
-        console.log("user token", token)
         
         const response = await api.get("/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        console.log("Fetched profile data:", response.data);
+        
         setUserProfile(response.data.data);
+        
+        // Fetch filtered events
+        await fetchFilteredEvents();
       } catch (error) {
         console.error("Error fetching profile:", error);
       } finally {
@@ -51,59 +104,64 @@ export default function ProfilePage() {
     fetchData();
   }, [id]);
 
+  // Refresh handler
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchFilteredEvents();
+    setRefreshing(false);
+  };
 
-// 📸 Handle Profile Picture Upload
-const handleImageUpload = async () => {
-  try {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission required", "Please allow access to your gallery.");
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      setLoading(true);
-      const image = result.assets[0];
-      const formData = new FormData();
-
-      // ✅ Ensure correct format for multipart/form-data
-      formData.append("profile-picture", {
-        uri: image.uri,
-        name: image.fileName || "profile.jpg",
-        type: image.mimeType || "image/jpeg",
-      });
-
-      const token = await AsyncStorage.getItem("token");
-
-      const response = await api.post(`/auth/profile/picture`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.data.success) {
-        Alert.alert("Success", "Profile picture updated successfully!");
-        setUserProfile((prev) => ({
-          ...prev,
-          avatar: response.data.data.profilePicture,
-        }));
+  // Handle Profile Picture Upload
+  const handleImageUpload = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission required", "Please allow access to your gallery.");
+        return;
       }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        setLoading(true);
+        const image = result.assets[0];
+        const formData = new FormData();
+
+        formData.append("profile-picture", {
+          uri: image.uri,
+          name: image.fileName || "profile.jpg",
+          type: image.mimeType || "image/jpeg",
+        });
+
+        const token = await AsyncStorage.getItem("token");
+
+        const response = await api.post(`/auth/profile/picture`, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.data.success) {
+          Alert.alert("Success", "Profile picture updated successfully!");
+          setUserProfile((prev) => ({
+            ...prev,
+            avatar: response.data.data.profilePicture,
+          }));
+        }
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Upload error:", error.response?.data || error.message);
+      Alert.alert("Error", "Failed to upload profile picture.");
       setLoading(false);
     }
-  } catch (error) {
-    console.error("Upload error:", error.response?.data || error.message);
-    Alert.alert("Error", "Failed to upload profile picture.");
-    setLoading(false);
-  }
-};
+  };
 
   if (loading) {
     return (
@@ -116,7 +174,13 @@ const handleImageUpload = async () => {
   const user = userProfile || {};
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView 
+      style={styles.container} 
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       {/* Banner */}
       <View style={styles.header}>
         <Image
@@ -145,7 +209,6 @@ const handleImageUpload = async () => {
               style={styles.avatar}
             />
 
-            {/* 📸 Camera icon for logged-in user */}
             {isMyProfile && (
               <TouchableOpacity style={styles.cameraIcon} onPress={handleImageUpload}>
                 <Ionicons name="camera-outline" size={16} color="#fff" />
@@ -153,7 +216,6 @@ const handleImageUpload = async () => {
             )}
           </View>
 
-          {/* ✏️ Edit Profile */}
           {isMyProfile && (
             <TouchableOpacity onPress={() => router.push("/edit-profile")}>
               <Text style={{ fontFamily: "Poppins_500Medium", color: "#555" }}>
@@ -178,7 +240,7 @@ const handleImageUpload = async () => {
         </View>
 
         <Text style={styles.bio}>
-          {user.about || "This user hasn’t added a bio yet."}
+          {user.about || "This user hasn't added a bio yet."}
         </Text>
 
         {/* Info Section */}
@@ -205,13 +267,26 @@ const handleImageUpload = async () => {
         </View>
       </View>
 
+      {/* Logout button */}
+      {isMyProfile && (
+        <TouchableOpacity 
+          style={styles.logoutButton}
+          onPress={handleLogout}
+          disabled={isLoggingOut}
+        >
+          <Text style={styles.logoutText}>
+            {isLoggingOut ? "Logging out..." : "Logout"}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Tabs — only show for logged-in user */}
       {isMyProfile && (
         <>
           <View style={styles.tabContainer}>
             {[
               { key: "events", label: "My Events" },
-              { key: "comments", label: "Comments" },
+              { key: "interest", label: "Interest" },
               { key: "bookmarks", label: "Bookmarks" },
               { key: "wallet", label: "Wallet" },
             ].map((tab) => (
@@ -234,27 +309,45 @@ const handleImageUpload = async () => {
               </TouchableOpacity>
             ))}
           </View>
-
+           
           {/* Tab Content */}
           <View style={styles.content}>
             {activeTab === "events" && (
+              <ExploreEvents userId={id} />
+            )}
+            
+            {activeTab === "interest" && (
               <>
-                {/* <Text style={styles.sectionTitle}>My Events</Text> */}
-                <ExploreEvents userId = {id}/>
+                {interestedEvents.length > 0 ? (
+                  <ExploreEvents events={interestedEvents} />
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="heart-outline" size={64} color="#ccc" />
+                    <Text style={styles.emptyText}>No events you're interested in yet</Text>
+                    <Text style={styles.emptySubtext}>
+                      Click "Interested" on events to see them here
+                    </Text>
+                  </View>
+                )}
               </>
             )}
-            {activeTab === "comments" && (
-              <>
-                <Text style={styles.sectionTitle}>My Comments</Text>
-                <Text style={styles.sectionText}>💬 You have commented on 12 events.</Text>
-              </>
-            )}
+            
             {activeTab === "bookmarks" && (
               <>
-                <Text style={styles.sectionTitle}>My Bookmarks</Text>
-                <Text style={styles.sectionText}>🔖 Your saved events will appear here.</Text>
+                {bookmarkedEvents.length > 0 ? (
+                  <ExploreEvents events={bookmarkedEvents} />
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="bookmark-outline" size={64} color="#ccc" />
+                    <Text style={styles.emptyText}>No bookmarked events yet</Text>
+                    <Text style={styles.emptySubtext}>
+                      Bookmark events to save them for later
+                    </Text>
+                  </View>
+                )}
               </>
             )}
+            
             {activeTab === "wallet" && (
               <>
                 <Text style={styles.sectionTitle}>Wallet</Text>
@@ -302,7 +395,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 12,
   },
-  bio: { marginVertical: 10, color: "#555", fontSize: 13, lineHeight: 18, fontFamily: "Poppins_400Regular"  },
+  bio: { marginVertical: 10, color: "#555", fontSize: 13, lineHeight: 18, fontFamily: "Poppins_400Regular" },
   statsRow: { flexDirection: "row", alignItems: "center", marginTop: 6 },
   dot: {
     width: 4,
@@ -313,7 +406,7 @@ const styles = StyleSheet.create({
   },
   statText: { fontSize: 12, color: "#777", fontFamily: "Poppins_400Regular" },
   infoRow: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 },
-  infoText: { color: "#555", fontSize: 12, fontFamily: "Poppins_400Regular"  },
+  infoText: { color: "#555", fontSize: 12, fontFamily: "Poppins_400Regular" },
   tabContainer: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -326,8 +419,8 @@ const styles = StyleSheet.create({
   tabLabel: { color: "#777", fontSize: 13, fontWeight: "500" },
   activeTabLabel: { color: "#5A31F4", fontWeight: "700" },
   content: { padding: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", color: "#222", marginBottom: 6, fontFamily: "Poppins_400Regular"  },
-  sectionText: { color: "#555", fontSize: 13, lineHeight: 20, fontFamily: "Poppins_400Regular"  },
+  sectionTitle: { fontSize: 16, fontWeight: "700", color: "#222", marginBottom: 6, fontFamily: "Poppins_400Regular" },
+  sectionText: { color: "#555", fontSize: 13, lineHeight: 20, fontFamily: "Poppins_400Regular" },
   profileEdit: {
     flexDirection: "row",
     alignItems: "center",
@@ -337,5 +430,38 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  logoutButton: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: "#d4d4d4",
+    borderRadius: 8,
+    marginHorizontal: 16,
+    width: width * 0.25,
+  },
+  logoutText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 50,
+  },
+  emptyText: {
+    marginTop: 15,
+    fontSize: 16,
+    fontFamily: "Poppins_500Medium",
+    color: "#666",
+  },
+  emptySubtext: {
+    marginTop: 5,
+    fontSize: 13,
+    fontFamily: "Poppins_400Regular",
+    color: "#999",
+    textAlign: "center",
   },
 });

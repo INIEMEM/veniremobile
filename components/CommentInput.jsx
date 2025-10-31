@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -40,7 +41,9 @@ export default function CommentInput({
             <Text style={styles.replyingText}>
               Replying to{" "}
               <Text style={styles.replyingUsername}>
-                {replyingTo.userId?.firstname || replyingTo.userId?.email || "User"}
+                {replyingTo.userId?.firstname ||
+                  replyingTo.userId?.email ||
+                  "User"}
               </Text>
             </Text>
           </View>
@@ -54,9 +57,7 @@ export default function CommentInput({
         <TextInput
           ref={inputRef}
           style={styles.input}
-          placeholder={
-            replyingTo ? "Write a reply..." : "Add a comment..."
-          }
+          placeholder={replyingTo ? "Write a reply..." : "Add a comment..."}
           placeholderTextColor="#999"
           value={message}
           onChangeText={setMessage}
@@ -86,9 +87,7 @@ export default function CommentInput({
       </View>
 
       {message.length > 0 && (
-        <Text style={styles.charCount}>
-          {message.length}/500
-        </Text>
+        <Text style={styles.charCount}>{message.length}/500</Text>
       )}
     </View>
   );
@@ -99,7 +98,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#eee",
     backgroundColor: "#fff",
-    paddingBottom: 10,
+    paddingBottom: Platform.OS === "ios" ? 34 : 10,
   },
   replyingBar: {
     flexDirection: "row",
@@ -138,7 +137,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    paddingTop: 10,
     fontFamily: "Poppins_400Regular",
     fontSize: 14,
     color: "#333",

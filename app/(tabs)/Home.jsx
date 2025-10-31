@@ -40,9 +40,10 @@ export default function Home() {
       const token = await AsyncStorage.getItem("token");
       const storedUser = await AsyncStorage.getItem("user");
       const isGuest = await AsyncStorage.getItem("isGuest");
-
+      console.log("guest status in Home:", isGuest);
       if (token && storedUser && !isGuest) {
         setUser(JSON.parse(storedUser));
+        console.log("User loaded in Home:", JSON.parse(storedUser));
       } else {
         setUser(null);
       }

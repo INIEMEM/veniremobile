@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import SplashScreen from "../components/SplashScreen";
 import { View, ActivityIndicator } from "react-native";
 import Toast from "react-native-toast-message";
+
 export default function Index() {
   const router = useRouter();
   const [showSplash, setShowSplash] = useState(true);
