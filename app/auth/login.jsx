@@ -18,6 +18,18 @@ import api from "../../utils/axiosInstance";
 import Toast from "react-native-toast-message";
 import CustomLoader from "../../components/CustomFormLoader";
 import { useAuth } from "../../context/AuthContext";
+import { 
+  useOAuth, 
+  useUser, 
+  useAuth as useClerkAuth,
+  useSession ,
+  useClerk
+} from "@clerk/clerk-expo";
+import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
+
+// Required for OAuth flow
+WebBrowser.maybeCompleteAuthSession();
 
 const { width, height } = Dimensions.get("window");
 
@@ -26,7 +38,11 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
+  const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
+  const { user: clerkUser, isLoaded } = useUser();
+  const { isSignedIn, signOut } = useClerkAuth();
+  const { session } = useSession();
 
   // Animations
   const logoScale = useRef(new Animated.Value(0.5)).current;
@@ -146,6 +162,147 @@ export default function LoginScreen() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsSubmitting(true);
+      const redirectUrl = AuthSession.makeRedirectUri({
+        scheme: "veniremobile",
+        path: "/oauth-native-callback",
+      });
+      
+      const { createdSessionId, setActive, signUp, signIn } = await startOAuthFlow({
+        redirectUrl,
+      });
+
+      if (createdSessionId) {
+        await setActive({ session: createdSessionId });
+        
+        // Give Clerk a moment to set up the session
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Get user data from the session or the OAuth result
+        // The user data is in either signUp or signIn depending on whether it's a new user
+        let userEmail, userFirstName, userLastName, userId, userImage;
+
+        // Try to get from session first (most reliable)
+        if (session?.user) {
+          userEmail = session.user.emailAddresses?.[0]?.emailAddress;
+          userFirstName = session.user.firstName;
+          userLastName = session.user.lastName;
+          userId = session.user.id;
+          userImage = session.user.imageUrl;
+          console.log("Got user from session:", session.user);
+        } 
+        // Fallback to signUp/signIn result
+        else if (signUp?.createdUserId) {
+          userEmail = signUp.emailAddress;
+          userFirstName = signUp.firstName;
+          userLastName = signUp.lastName;
+          userId = signUp.createdUserId;
+          userImage = signUp.imageUrl;
+          console.log("Got user from signUp:", signUp);
+        } 
+        else if (signIn?.createdSessionId) {
+          userEmail = signIn.identifier;
+          userFirstName = signIn.firstName;
+          userLastName = signIn.lastName;
+          userId = signIn.userId;
+          userImage = signIn.imageUrl;
+          console.log("Got user from signIn:", signIn);
+        }
+        // Last resort: try clerkUser hook
+        else if (clerkUser) {
+          userEmail = clerkUser.emailAddresses?.[0]?.emailAddress;
+          userFirstName = clerkUser.firstName;
+          userLastName = clerkUser.lastName;
+          userId = clerkUser.id;
+          userImage = clerkUser.imageUrl;
+          console.log("Got user from clerkUser hook:", clerkUser);
+        }
+
+        console.log("User data extracted:", { 
+          userEmail, 
+          userFirstName, 
+          userLastName, 
+          userId 
+        });
+
+        if (!userEmail) {
+          throw new Error("Could not retrieve user email from Google");
+        }
+
+        // Send user data to your backend
+        const response = await api.post("/auth/clerk/google/login", {
+          userEmail: userEmail,
+          userFirstName: userFirstName,
+          userLastName: userLastName,
+          // clerkId: userId,
+          userProfileImage: userImage,
+        });
+
+        const token = response.data?.token;
+        if (!token) {
+          throw new Error("No token returned from backend");
+        }
+
+        // Use your login function to save token and fetch user details
+        await login(token);
+
+        Toast.show({
+          type: "success",
+          text1: "Success",
+          text2: "Signed in with Google successfully!",
+        });
+
+        router.replace("/(tabs)/Home");
+      }
+    } catch (error) {
+      console.error("Google Sign-In Error:", error);
+      Toast.show({
+        type: "error",
+        text1: "Sign-In Failed",
+        text2: error.message || "Could not sign in with Google.",
+      });
+      
+      // If there was an error, sign out from Clerk to clean up
+      try {
+        await signOut();
+      } catch (signOutError) {
+        console.error("Error signing out after failed login:", signOutError);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    try {
+      setIsSubmitting(true);
+      
+      // Sign out from Clerk
+      await signOut();
+      
+      // Sign out from your backend
+      await logout();
+      
+      Toast.show({
+        type: "success",
+        text1: "Success",
+        text2: "Signed out successfully!",
+      });
+      
+    } catch (error) {
+      console.error("Google Sign-Out Error:", error);
+      Toast.show({
+        type: "error",
+        text1: "Sign-Out Failed",
+        text2: error.message || "Could not sign out.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleExplore = async () => {
     await AsyncStorage.setItem("isGuest", "true");
     router.replace("/(tabs)/Home");
@@ -163,8 +320,6 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        
-
         {/* Logo Section */}
         <Animated.View
           style={[
@@ -255,6 +410,43 @@ export default function LoginScreen() {
               {isSubmitting ? "Logging in..." : "Login"}
             </Text>
           </TouchableOpacity>
+
+          {/* Google Sign-In/Out Buttons */}
+          {isSignedIn && isLoaded ? (
+            <TouchableOpacity
+              style={[styles.button, styles.googleSignOutButton]}
+              onPress={handleGoogleSignOut}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <View style={styles.googleButtonContent}>
+                <Text style={styles.googleSignOutText}>Sign Out from Google</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.button, styles.googleButton]}
+              onPress={handleGoogleSignIn}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <View style={styles.googleButtonContent}>
+                {/* Uncomment when you have the icon */}
+                {/* <Image
+                  source={require("../../assets/google-icon.png")}
+                  style={styles.googleIcon}
+                /> */}
+                <Text style={styles.googleText}>Continue with Google</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* OR Divider */}
+          <View style={styles.dividerContainer}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.divider} />
+          </View>
 
           <TouchableOpacity
             style={[styles.button, styles.signupButton]}
@@ -366,13 +558,6 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     backgroundColor: "#5A31F4",
-    // shadowColor: "#5A31F4",
-    // shadowOffset: {
-    //   width: 0,
-    //   height: 4,
-    // },
-    // shadowOpacity: 0.3,
-    // shadowRadius: 4.65,
     elevation: 8,
   },
   loginText: {
@@ -381,16 +566,60 @@ const styles = StyleSheet.create({
     fontSize: Math.min(width * 0.043, 17),
     fontFamily: "Poppins_600SemiBold",
   },
+  googleButton: {
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#ddd",
+    elevation: 2,
+  },
+  googleSignOutButton: {
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#EA4335",
+    elevation: 2,
+  },
+  googleButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  googleIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 10,
+    resizeMode: "contain",
+  },
+  googleText: {
+    color: "#444",
+    fontWeight: "600",
+    fontSize: Math.min(width * 0.04, 16),
+    fontFamily: "Poppins_600SemiBold",
+  },
+  googleSignOutText: {
+    color: "#EA4335",
+    fontWeight: "600",
+    fontSize: Math.min(width * 0.04, 16),
+    fontFamily: "Poppins_600SemiBold",
+  },
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    marginVertical: 8,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#ddd",
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    color: "#999",
+    fontSize: Math.min(width * 0.035, 13),
+    fontFamily: "Poppins_400Regular",
+  },
   signupButton: {
     backgroundColor: "#F3EDFF",
-    // shadowColor: "#5A31F4",
-    // shadowOffset: {
-    //   width: 0,
-    //   height: 2,
-    // },
-    // shadowOpacity: 0.1,
-    // shadowRadius: 3,
-    // elevation: 3,
   },
   signupText: {
     color: "#5A31F4",
@@ -400,13 +629,6 @@ const styles = StyleSheet.create({
   },
   exploreButton: {
     backgroundColor: "#eee",
-    // shadowColor: "#000",
-    // shadowOffset: {
-    //   width: 0,
-    //   height: 1,
-    // },
-    // shadowOpacity: 0.1,
-    // shadowRadius: 2,
     elevation: 2,
   },
   exploreText: {

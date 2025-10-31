@@ -3,6 +3,7 @@
     "name": "venire",
     "slug": "veniremobile",
     "version": "1.0.0",
+    "scheme": "veniremobile",
     "orientation": "portrait",
     "icon": "./assets/splash.png",
     "userInterfaceStyle": "light",
@@ -30,7 +31,10 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store",
+      
+      
     ],
     "extra": {
       "router": {},

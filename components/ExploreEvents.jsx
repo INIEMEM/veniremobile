@@ -48,9 +48,7 @@ export default function ExploreEvents({ userId = null }) {
 
       if (response.data.success) {
         const data = response?.data?.data;
-        const eventsData = Array.isArray(data) ? data : [data]; ;
-        // console.log("Fetched events:", eventsData);
-        // Fetch comment counts and like counts for each event
+        const eventsData = Array.isArray(data) ? data : [data]; 
         const eventsWithCounts = await Promise.all(
           eventsData?.map(async (event) => {
             try {

@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../utils/axiosInstance"; 
+import { useAuth as useClerkAuth } from '@clerk/clerk-expo';
 
 const AuthContext = createContext();
 
@@ -9,8 +10,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);  // full user details
   const [token, setToken] = useState(null); // store token separately
   const [loading, setLoading] = useState(true);
-  const [loggedEmail, setLoggedEmail] = useState(true);
-  const [resetToken, setResetToken] = useState('')
+  const [loggedEmail, setLoggedEmail] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const { signOut: clerkSignOut } = useClerkAuth();
 
   // ✅ Load token + user when app starts
   useEffect(() => {
@@ -50,21 +52,53 @@ export const AuthProvider = ({ children }) => {
       // Save user to AsyncStorage
       await AsyncStorage.setItem("user", JSON.stringify(userData));
       setUser(userData);
-      console.log('the userData is set', user)
+      console.log("User data set successfully:", userData);
     } catch (error) {
       console.error("Error fetching user details:", error);
+      throw error; // Re-throw so the calling function knows login failed
     }
   };
 
-  // ✅ Logout function
+  // ✅ Logout function - handles both regular and Google logout
   const logout = async () => {
-    await AsyncStorage.multiRemove(["token", "user", "isGuest"]);
-    setUser(null);
-    setToken(null);
+    try {
+      // Clear AsyncStorage
+      await AsyncStorage.multiRemove(["token", "user", "isGuest"]);
+      
+      // Clear state
+      setUser(null);
+      setToken(null);
+      
+      // Sign out from Clerk if signed in
+      try {
+        await clerkSignOut();
+      } catch (clerkError) {
+        // If user wasn't signed in with Clerk, this will fail silently
+        console.log("Clerk sign out:", clerkError.message);
+      }
+      
+      console.log("Logout successful");
+    } catch (error) {
+      console.error("Error during logout:", error);
+      throw error;
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading, setUser, loggedEmail, setLoggedEmail, resetToken, setResetToken }}>
+    <AuthContext.Provider 
+      value={{ 
+        user, 
+        token, 
+        login, 
+        logout, 
+        loading, 
+        setUser, 
+        loggedEmail, 
+        setLoggedEmail, 
+        resetToken, 
+        setResetToken 
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
