@@ -16,7 +16,7 @@ import ExploreEvents from "./ExploreEvents";
 
 const { width, height } = Dimensions.get("window");
 
-export default function EventsScreen() {
+export default function EventsScreen({isExploreMode = false, searchQuery = ""}) {
   const router = useRouter();
 
   // Subtle animations
@@ -216,7 +216,7 @@ export default function EventsScreen() {
           Explore Events
         </Text>
 
-        <ExploreEvents />
+        <ExploreEvents isExploreMode={isExploreMode} />
       </Animated.View>
     </ScrollView>
   );

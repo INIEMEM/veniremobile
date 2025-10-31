@@ -15,6 +15,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Toast from "react-native-toast-message";
 import api from "../../utils/axiosInstance";
 import ExploreEvents from "../../components/ExploreEvents";
 import { useAuth } from "../../context/AuthContext";
@@ -31,6 +32,7 @@ export default function ProfilePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [interestedEvents, setInterestedEvents] = useState([]);
   const [bookmarkedEvents, setBookmarkedEvents] = useState([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const { user: authUser, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   
@@ -53,7 +55,6 @@ export default function ProfilePage() {
     try {
       const token = await AsyncStorage.getItem("token");
       
-      // Fetch all events
       const response = await api.get("/event", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -61,13 +62,11 @@ export default function ProfilePage() {
       if (response.data.success) {
         const allEvents = response.data.data;
         
-        // Filter events where user has shown interest
         const interested = allEvents.filter(event => 
           event.eventInterests?.some(interest => interest.userId === id) ||
           (event.totalInterest > 0 && event.eventInterests?.length > 0)
         );
         
-        // Filter events where user has bookmarked
         const bookmarked = allEvents.filter(event => 
           event.bookmark?.includes(id) || event.hasBookmarked
         );
@@ -93,7 +92,6 @@ export default function ProfilePage() {
         
         setUserProfile(response.data.data);
         
-        // Fetch filtered events
         await fetchFilteredEvents();
       } catch (error) {
         console.error("Error fetching profile:", error);
@@ -109,6 +107,57 @@ export default function ProfilePage() {
     setRefreshing(true);
     await fetchFilteredEvents();
     setRefreshing(false);
+  };
+
+  // Get signed URL for S3 upload
+  const getSignedUrl = async (fileName, fileType) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+     
+      const response = await api.put(
+        "/auth/sign-s3",
+        {
+          fileName: fileName,
+          fileType: fileType,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error("Error getting signed URL:", error);
+      throw error;
+    }
+  };
+
+  // Upload image to S3
+  const uploadImageToS3 = async (imageUri, uploadURL) => {
+    try {
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      const uploadResponse = await fetch(uploadURL, {
+        method: "PUT",
+        body: blob,
+        headers: {
+          "Content-Type": blob.type,
+        },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error("Failed to upload image to S3");
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error uploading to S3:", error);
+      throw error;
+    }
   };
 
   // Handle Profile Picture Upload
@@ -128,38 +177,88 @@ export default function ProfilePage() {
       });
 
       if (!result.canceled) {
-        setLoading(true);
+        setUploadingImage(true);
         const image = result.assets[0];
-        const formData = new FormData();
+        
+        const fileName = image.fileName || `profile_${Date.now()}.jpg`;
+        const fileType = image.mimeType || "image/jpeg";
 
-        formData.append("profile-picture", {
-          uri: image.uri,
-          name: image.fileName || "profile.jpg",
-          type: image.mimeType || "image/jpeg",
-        });
+        try {
+          // Step 1: Get signed URL from backend
+          Toast.show({
+            type: "info",
+            text1: "Uploading...",
+            text2: "Getting upload URL",
+          });
 
-        const token = await AsyncStorage.getItem("token");
+          const signedData = await getSignedUrl(fileName, fileType);
+          const { uploadURL } = signedData;
 
-        const response = await api.post(`/auth/profile/picture`, formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${token}`,
-          },
-        });
+          // Step 2: Upload image to S3
+          Toast.show({
+            type: "info",
+            text1: "Uploading...",
+            text2: "Uploading to cloud storage",
+          });
 
-        if (response.data.success) {
-          Alert.alert("Success", "Profile picture updated successfully!");
-          setUserProfile((prev) => ({
-            ...prev,
-            avatar: response.data.data.profilePicture,
-          }));
+          await uploadImageToS3(image.uri, uploadURL);
+
+          // Step 3: Get the final image URL (remove query params)
+          const imageUrl = uploadURL.split("?")[0];
+
+          // Step 4: Send URL to backend to update profile
+          Toast.show({
+            type: "info",
+            text1: "Uploading...",
+            text2: "Updating profile",
+          });
+
+          const token = await AsyncStorage.getItem("token");
+
+          const response = await api.post(
+            `/auth/profile/picture`,
+            { profilePictureUrl: imageUrl },
+            {
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+
+          if (response.data.success) {
+            Toast.show({
+              type: "success",
+              text1: "Success! 🎉",
+              text2: "Profile picture updated successfully",
+            });
+
+            // Update local state with new profile picture
+            setUserProfile((prev) => ({
+              ...prev,
+              avatar: imageUrl,
+              profile_picture: imageUrl,
+            }));
+          }
+        } catch (uploadError) {
+          console.error("Upload error:", uploadError);
+          Toast.show({
+            type: "error",
+            text1: "Upload Failed",
+            text2: uploadError.response?.data?.message || "Failed to upload profile picture",
+          });
+        } finally {
+          setUploadingImage(false);
         }
-        setLoading(false);
       }
     } catch (error) {
-      console.error("Upload error:", error.response?.data || error.message);
-      Alert.alert("Error", "Failed to upload profile picture.");
-      setLoading(false);
+      console.error("Image picker error:", error);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Failed to pick image",
+      });
+      setUploadingImage(false);
     }
   };
 
@@ -204,14 +303,23 @@ export default function ProfilePage() {
               source={{
                 uri:
                   user.avatar ||
+                  user.profile_picture ||
                   "https://cdn-icons-png.flaticon.com/512/149/149071.png",
               }}
               style={styles.avatar}
             />
 
             {isMyProfile && (
-              <TouchableOpacity style={styles.cameraIcon} onPress={handleImageUpload}>
-                <Ionicons name="camera-outline" size={16} color="#fff" />
+              <TouchableOpacity 
+                style={styles.cameraIcon} 
+                onPress={handleImageUpload}
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="camera-outline" size={16} color="#fff" />
+                )}
               </TouchableOpacity>
             )}
           </View>
@@ -383,6 +491,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#5A31F4",
     borderRadius: 12,
     padding: 5,
+    width: 28,
+    height: 28,
+    justifyContent: "center",
+    alignItems: "center",
   },
   name: { fontSize: 18, fontWeight: "700", fontFamily: "Poppins_600SemiBold", color: "#333" },
   email: { color: "#666", fontSize: 13, fontFamily: "Poppins_400Regular" },

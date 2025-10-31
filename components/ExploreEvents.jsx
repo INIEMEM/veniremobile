@@ -9,7 +9,6 @@ import {
   Animated,
   ActivityIndicator,
   RefreshControl,
-  
 } from "react-native";
 import { Dimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,35 +20,52 @@ import Toast from "react-native-toast-message";
 
 const { width, height } = Dimensions.get("window");
 
-export default function ExploreEvents({ userId = null, events: propEvents = null }) {
+export default function ExploreEvents({ 
+  userId = null, 
+  events: propEvents = null,
+  isExploreMode = false 
+}) {
   const router = useRouter();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const animations = useRef({}).current;
 
-  // Fetch events on mount - only if events prop is not provided
   useEffect(() => {
     if (propEvents) {
-      // Use provided events and process them
       processEvents(propEvents);
     } else {
       fetchEvents();
     }
-  }, [userId, propEvents]);
+  }, [userId, propEvents, isExploreMode]);
 
   const processEvents = async (eventsData) => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
+      const isGuest = await AsyncStorage.getItem("isGuest");
+      
+      // Skip fetching comment counts if user is a guest (they can't access this endpoint)
+      if (isGuest === "true" || !token) {
+        setEvents(eventsData.map(event => ({
+          ...event,
+          totalComments: 0,  // Guest users can't fetch comment counts
+          totalLikes: event.likes?.length || event.likeCount || 0,
+        })));
+        setLoading(false);
+        return;
+      }
       
       const eventsWithCounts = await Promise.all(
         eventsData.map(async (event) => {
           try {
-            // Fetch comments count
+            // Fetch comments count with requiresAuth flag
             const commentsResponse = await api.get(
               `/event/comment?eventId=${event._id}`,
-              { headers: { Authorization: `Bearer ${token}` } }
+              { 
+                headers: { Authorization: `Bearer ${token}` },
+                requiresAuth: true  // Add this flag
+              }
             );
             
             const commentCount = commentsResponse.data?.count || 0;
@@ -61,11 +77,11 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
               totalLikes: likeCount,
             };
           } catch (error) {
-            console.error(`Error fetching counts for event ${event._id}:`, error);
+            console.error(`Error fetching counts for event ${event._id}:`, error.message);
             return {
               ...event,
               totalComments: 0,
-              totalLikes: 0,
+              totalLikes: event.likes?.length || event.likeCount || 0,
             };
           }
         })
@@ -78,21 +94,38 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
       setLoading(false);
     }
   };
-
+  
+  // Also update fetchEvents function:
   const fetchEvents = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
+      const isGuest = await AsyncStorage.getItem("isGuest");
       
       let url = "/event";
-      if (userId) {
-        url = `/event/key?value=${userId}&key=userId`;
+      let config = {};
+      
+      // Check if user is in explore/guest mode
+      if (isExploreMode || isGuest === "true") {
+        url = "/event/explore";
+        console.log("Fetching explore events (guest mode)");
+        // No auth required for explore
+      } else if (userId) {
+        url = `/event/explore/key?value=${userId}&key=userId`;
+        console.log("Fetching user specific events");
+        config = {
+          headers: { Authorization: `Bearer ${token}` },
+          requiresAuth: true  // Add this flag
+        };
+      } else {
+        config = {
+          headers: { Authorization: `Bearer ${token}` },
+          requiresAuth: true  // Add this flag
+        };
       }
-
-      const response = await api.get(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+  
+      const response = await api.get(url, config);
+  
       if (response.data.success) {
         const data = response?.data?.data;
         const eventsData = Array.isArray(data) ? data : [data];
@@ -120,10 +153,20 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
     setRefreshing(false);
   };
 
-  // Handle Like/Unlike
   const handleLike = async (eventId, isLiked) => {
     try {
       const token = await AsyncStorage.getItem("token");
+      const isGuest = await AsyncStorage.getItem("isGuest");
+      
+      if (isGuest === "true") {
+        Toast.show({
+          type: "info",
+          text1: "Login Required",
+          text2: "Please login to like events",
+        });
+        return;
+      }
+
       const endpoint = isLiked ? "/event/unlike" : "/event/like";
 
       await api.post(
@@ -132,11 +175,9 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // Update local state
       setEvents((prev) =>
         prev.map((event) => {
           if (event._id === eventId) {
-            // Trigger animation
             if (!animations[eventId]) animations[eventId] = new Animated.Value(1);
             Animated.sequence([
               Animated.timing(animations[eventId], {
@@ -175,10 +216,20 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
     }
   };
 
-  // Handle Bookmark/Unbookmark
   const handleBookmark = async (eventId, isBookmarked) => {
     try {
       const token = await AsyncStorage.getItem("token");
+      const isGuest = await AsyncStorage.getItem("isGuest");
+      
+      if (isGuest === "true") {
+        Toast.show({
+          type: "info",
+          text1: "Login Required",
+          text2: "Please login to bookmark events",
+        });
+        return;
+      }
+
       const endpoint = isBookmarked ? "/event/cancel-bookmark" : "/event/bookmark";
 
       await api.post(
@@ -187,7 +238,6 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // Update local state
       setEvents((prev) =>
         prev.map((event) =>
           event._id === eventId
@@ -210,10 +260,20 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
     }
   };
 
-  // Handle Interested
   const handleInterested = async (eventId, isInterested) => {
     try {
       const token = await AsyncStorage.getItem("token");
+      const isGuest = await AsyncStorage.getItem("isGuest");
+      
+      if (isGuest === "true") {
+        Toast.show({
+          type: "info",
+          text1: "Login Required",
+          text2: "Please login to show interest in events",
+        });
+        return;
+      }
+
       const endpoint = isInterested ? "/event/interest-cancel" : "/event/interest";
   
       await api.post(
@@ -222,7 +282,6 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
         { headers: { Authorization: `Bearer ${token}` } }
       );
   
-      // Update local state immediately
       setEvents((prev) =>
         prev.map((event) =>
           event._id === eventId
@@ -247,7 +306,6 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
     }
   };
 
-  // Format date
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
@@ -257,7 +315,6 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
     });
   };
 
-  // Format time
   const formatTime = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleTimeString("en-US", {
@@ -306,20 +363,18 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
         return (
           <View style={styles.eventCard} key={event._id}>
             <View style={styles.hostRow}>
-              {/* I want to add the image here */}
               <Image
-                  source={{
-                    uri:
-                      event.userId?.profileImage ||
-                      "https://cdn-icons-png.flaticon.com/512/149/149071.png",
-                  }}
-                  style={styles.hostAvatar}
-                />
+                source={{
+                  uri:
+                    event.userId?.profile_picture ||
+                    "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                }}
+                style={styles.hostAvatar}
+              />
               <Text style={styles.host}>
                 {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
               </Text>
             </View>
-            {/* <Text style={styles.roles}>{event.userId?.email || ""}</Text> */}
 
             <Text style={[styles.host, { marginTop: 20 }]}>Event Description</Text>
             <TouchableOpacity
@@ -371,7 +426,6 @@ export default function ExploreEvents({ userId = null, events: propEvents = null
               </Text>
             </View>
 
-            {/* Stats Row */}
             <View style={styles.statsRow}>
               <TouchableOpacity
                 onPress={() => handleLike(event._id, event.hasLiked)}
@@ -469,7 +523,7 @@ const styles = StyleSheet.create({
   },
   flier: {
     width: "100%",
-    height: height*0.5,
+    height: height * 0.5,
     borderRadius: 8,
   },
   eventTitle: {
@@ -576,12 +630,10 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 5,
   },
-  
   hostAvatar: {
     width: 35,
     height: 35,
     borderRadius: 50,
     backgroundColor: "#ddd",
   },
-  
-});
+}); 

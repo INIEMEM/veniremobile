@@ -22,6 +22,7 @@ const { width, height } = Dimensions.get("window");
 
 export default function Home() {
   const [user, setUser] = useState(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [selectedTab, setSelectedTab] = useState("events");
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
@@ -34,14 +35,20 @@ export default function Home() {
   const searchY = useRef(new Animated.Value(-10)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const contentY = useRef(new Animated.Value(10)).current;
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
+  const bannerY = useRef(new Animated.Value(-10)).current;
 
   useEffect(() => {
     const fetchUser = async () => {
       const token = await AsyncStorage.getItem("token");
       const storedUser = await AsyncStorage.getItem("user");
-      const isGuest = await AsyncStorage.getItem("isGuest");
-      console.log("guest status in Home:", isGuest);
-      if (token && storedUser && !isGuest) {
+      const guestStatus = await AsyncStorage.getItem("isGuest");
+      
+      console.log("guest status in Home:", guestStatus);
+      
+      setIsGuest(guestStatus === "true");
+      
+      if (token && storedUser && guestStatus !== "true") {
         setUser(JSON.parse(storedUser));
         console.log("User loaded in Home:", JSON.parse(storedUser));
       } else {
@@ -53,7 +60,7 @@ export default function Home() {
 
   useEffect(() => {
     // Subtle staggered entrance animations
-    Animated.parallel([
+    const animations = [
       // Header animation
       Animated.parallel([
         Animated.timing(headerY, {
@@ -67,9 +74,29 @@ export default function Home() {
           useNativeDriver: true,
         }),
       ]),
+      // Banner animation (if guest)
+      ...(isGuest
+        ? [
+            Animated.sequence([
+              Animated.delay(150),
+              Animated.parallel([
+                Animated.timing(bannerY, {
+                  toValue: 0,
+                  duration: 500,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(bannerOpacity, {
+                  toValue: 1,
+                  duration: 500,
+                  useNativeDriver: true,
+                }),
+              ]),
+            ]),
+          ]
+        : []),
       // Search bar animation
       Animated.sequence([
-        Animated.delay(150),
+        Animated.delay(isGuest ? 300 : 150),
         Animated.parallel([
           Animated.timing(searchY, {
             toValue: 0,
@@ -85,7 +112,7 @@ export default function Home() {
       ]),
       // Content animation
       Animated.sequence([
-        Animated.delay(300),
+        Animated.delay(isGuest ? 450 : 300),
         Animated.parallel([
           Animated.timing(contentY, {
             toValue: 0,
@@ -99,8 +126,10 @@ export default function Home() {
           }),
         ]),
       ]),
-    ]).start();
-  }, []);
+    ];
+
+    Animated.parallel(animations).start();
+  }, [isGuest]);
 
   const handleSupport = () => {
     router.push("/support");
@@ -113,6 +142,11 @@ export default function Home() {
       useNativeDriver: false,
       friction: 8,
     }).start();
+  };
+
+  const handleLoginPrompt = async () => {
+    await AsyncStorage.removeItem("isGuest");
+    router.push("/auth/login");
   };
 
   return (
@@ -129,13 +163,17 @@ export default function Home() {
       >
         <View style={styles.userInfo}>
           <TouchableOpacity
-            onPress={() => router.push(`/profile/${user?._id}`)}
+            onPress={() =>
+              isGuest
+                ? handleLoginPrompt()
+                : router.push(`/profile/${user?._id}`)
+            }
             activeOpacity={0.7}
           >
             <Image
               source={
-                user?.profileImage
-                  ? { uri: user.profileImage }
+                user?.profile_picture
+                  ? { uri: user.profile_picture }
                   : require("../../assets/default-avatar.jpg")
               }
               style={styles.avatar}
@@ -143,7 +181,7 @@ export default function Home() {
           </TouchableOpacity>
           <View>
             <Text style={styles.welcomeText}>
-              Welcome{" "}
+              {isGuest ? "Exploring as " : "Welcome "}
               <Text style={styles.userName}>
                 {user ? truncateText(user.firstname, 8) : "Guest"}
               </Text>
@@ -151,55 +189,95 @@ export default function Home() {
           </View>
         </View>
 
-        {/* Toggle + Support */}
+        {/* Toggle + Support/Login */}
         <View style={styles.headerRight}>
-          <View style={styles.toggleContainer}>
+          {isGuest ? (
             <TouchableOpacity
-              style={[
-                styles.toggleButton,
-                selectedTab === "events" && styles.activeToggle,
-              ]}
-              onPress={() => setSelectedTab("events")}
+              style={styles.loginButton}
+              onPress={handleLoginPrompt}
               activeOpacity={0.8}
             >
-              <Text
-                style={[
-                  styles.toggleText,
-                  selectedTab === "events" && styles.activeToggleText,
-                ]}
-              >
-                Events
-              </Text>
+              <Ionicons name="log-in-outline" size={18} color="#5A31F4" />
+              <Text style={styles.loginButtonText}>Login</Text>
             </TouchableOpacity>
+          ) : (
+            <>
+              <View style={styles.toggleContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleButton,
+                    selectedTab === "events" && styles.activeToggle,
+                  ]}
+                  onPress={() => setSelectedTab("events")}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      selectedTab === "events" && styles.activeToggleText,
+                    ]}
+                  >
+                    Events
+                  </Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.toggleButton,
-                selectedTab === "places" && styles.activeToggle,
-              ]}
-              onPress={() => setSelectedTab("places")}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.toggleText,
-                  selectedTab === "places" && styles.activeToggleText,
-                ]}
+                <TouchableOpacity
+                  style={[
+                    styles.toggleButton,
+                    selectedTab === "places" && styles.activeToggle,
+                  ]}
+                  onPress={() => setSelectedTab("places")}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      selectedTab === "places" && styles.activeToggleText,
+                    ]}
+                  >
+                    Places
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={styles.supportIcon}
+                onPress={handleSupport}
+                activeOpacity={0.7}
               >
-                Places
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={styles.supportIcon}
-            onPress={handleSupport}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="headset-outline" size={24} color="#666" />
-          </TouchableOpacity>
+                <Ionicons name="headset-outline" size={24} color="#666" />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </Animated.View>
+
+      {/* ===== GUEST BANNER ===== */}
+      {isGuest && (
+        <Animated.View
+          style={[
+            styles.guestBanner,
+            {
+              transform: [{ translateY: bannerY }],
+              opacity: bannerOpacity,
+            },
+          ]}
+        >
+          <Ionicons name="information-circle-outline" size={22} color="#5A31F4" />
+          <View style={styles.guestBannerTextContainer}>
+            <Text style={styles.guestBannerTitle}>Browsing as Guest</Text>
+            <Text style={styles.guestBannerSubtitle}>
+              Login to like, bookmark, and interact with events
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={handleLoginPrompt}
+            style={styles.guestBannerButton}
+          >
+            <Text style={styles.guestBannerButtonText}>Login</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
       {/* ===== SEARCH BAR + FILTER ===== */}
       <Animated.View
@@ -240,7 +318,7 @@ export default function Home() {
         ]}
       >
         {selectedTab === "events" ? (
-          <EventsScreen />
+          <EventsScreen isExploreMode={isGuest} searchQuery={searchQuery} />
         ) : (
           <View style={styles.comingSoonContainer}>
             <Text style={styles.comingSoonText}>
@@ -290,6 +368,22 @@ const styles = StyleSheet.create({
   userName: {
     color: "#FAB843",
   },
+  loginButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#f8f4ff",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#e8dbff",
+  },
+  loginButtonText: {
+    fontSize: Math.min(width * 0.035, 13),
+    fontFamily: "Poppins_600SemiBold",
+    color: "#5A31F4",
+  },
   toggleContainer: {
     flexDirection: "row",
     borderRadius: 25,
@@ -326,7 +420,45 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  /** 🔍 Search Bar Row */
+  guestBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8f4ff",
+    paddingHorizontal: width * 0.04,
+    paddingVertical: 12,
+    marginTop: 10,
+    marginBottom: 5,
+    borderRadius: 10,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#e8dbff",
+  },
+  guestBannerTextContainer: {
+    flex: 1,
+  },
+  guestBannerTitle: {
+    fontSize: Math.min(width * 0.037, 14),
+    fontFamily: "Poppins_600SemiBold",
+    color: "#5A31F4",
+    marginBottom: 2,
+  },
+  guestBannerSubtitle: {
+    fontSize: Math.min(width * 0.032, 12),
+    fontFamily: "Poppins_400Regular",
+    color: "#666",
+    lineHeight: 16,
+  },
+  guestBannerButton: {
+    backgroundColor: "#5A31F4",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  guestBannerButtonText: {
+    fontSize: Math.min(width * 0.032, 12),
+    fontFamily: "Poppins_600SemiBold",
+    color: "#fff",
+  },
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
