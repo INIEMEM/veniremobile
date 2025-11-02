@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Dimensions } from "react-native";
@@ -20,7 +21,7 @@ import Toast from "react-native-toast-message";
 
 import CommentsSection from "../../../components/CommentsSection";
 import api from "../../../utils/axiosInstance";
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 
 export default function EventDetailsScreen() {
   const { id } = useLocalSearchParams();
@@ -31,19 +32,35 @@ export default function EventDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (id) {
       fetchEventDetails();
+      getCurrentUser();
     }
   }, [id]);
+
+  const getCurrentUser = async () => {
+    try {
+      const storedUser = await AsyncStorage.getItem("user");
+      if (storedUser) {
+        const user = JSON.parse(storedUser);
+        setCurrentUserId(user._id);
+      }
+    } catch (error) {
+      console.error("Error getting current user:", error);
+    }
+  };
 
   const fetchEventDetails = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
 
-      const response = await api.get(`/event?key=id&value=${id}`, {
+      const response = await api.get(`/event/key?key=_id&value=${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -176,6 +193,57 @@ export default function EventDetailsScreen() {
     }
   };
 
+  const handleDeleteEvent = () => {
+    Alert.alert(
+      "Delete Event",
+      "Are you sure you want to delete this event? This action cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: confirmDelete,
+        },
+      ]
+    );
+  };
+
+  const confirmDelete = async () => {
+    try {
+      setDeleting(true);
+      const token = await AsyncStorage.getItem("token");
+
+      await api.delete(`/event/${event._id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      Toast.show({
+        type: "success",
+        text1: "Event deleted successfully",
+      });
+
+      router.back();
+    } catch (error) {
+      console.error("Error deleting event:", error);
+      Toast.show({
+        type: "error",
+        text1: "Delete failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    } finally {
+      setDeleting(false);
+      setShowOptionsMenu(false);
+    }
+  };
+
+  const handleEditEvent = () => {
+    setShowOptionsMenu(false);
+    router.push(`/events/edit-event/${event._id}`);
+  };
+
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
@@ -228,8 +296,10 @@ export default function EventDetailsScreen() {
     "https://via.placeholder.com/40/5A31F4/FFFFFF?text=" +
       (event.userId?.firstname?.charAt(0) || "U");
 
+  const isOwner = currentUserId && event.userId?._id === currentUserId;
+console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?._id);
   return (
-    <View style={{ flex: 1, backgroundColor: "#fff" }}>
+    <View style={{ flex: 1 }}>
       <ScrollView
         style={styles.container}
         showsVerticalScrollIndicator={false}
@@ -252,7 +322,13 @@ export default function EventDetailsScreen() {
             </View>
           </View>
           <View>
-            <Ionicons name="ellipsis-vertical" size={20} color="#888" />
+            {isOwner ? (
+              <TouchableOpacity onPress={() => setShowOptionsMenu(true)}>
+                <Ionicons name="ellipsis-vertical" size={20} color="#888" />
+              </TouchableOpacity>
+            ) : (
+              <Ionicons name="ellipsis-vertical" size={20} color="#888" />
+            )}
           </View>
         </View>
 
@@ -324,7 +400,7 @@ export default function EventDetailsScreen() {
                   color={event.hasLiked ? "red" : "#555"}
                 />
                 <Text style={styles.likesText}>
-                  {event.totalLikes || 0}
+                  {event.likes.length || 0}
                 </Text>
               </Animated.View>
             </TouchableOpacity>
@@ -335,7 +411,7 @@ export default function EventDetailsScreen() {
             >
               <Ionicons name="chatbubble-outline" size={20} color="#555" />
               <Text style={styles.statText}>
-                {event.totalComments || 0}
+                {event.comments.length || 0}
               </Text>
             </TouchableOpacity>
 
@@ -390,6 +466,50 @@ export default function EventDetailsScreen() {
         </View>
         <CommentsSection eventId={event._id} />
       </Modal>
+
+      {/* Options Menu Modal (for event owner) */}
+      <Modal
+        visible={showOptionsMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowOptionsMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowOptionsMenu(false)}
+        >
+          <View style={styles.optionsMenu}>
+            <Text style={styles.optionsTitle}>Event Options</Text>
+            
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={handleEditEvent}
+            >
+              <Ionicons name="create-outline" size={22} color="#5A31F4" />
+              <Text style={styles.optionText}>Edit Event</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionItem, styles.deleteOption]}
+              onPress={handleDeleteEvent}
+              disabled={deleting}
+            >
+              <Ionicons name="trash-outline" size={22} color="#ff4444" />
+              <Text style={[styles.optionText, styles.deleteText]}>
+                {deleting ? "Deleting..." : "Delete Event"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelOption}
+              onPress={() => setShowOptionsMenu(false)}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -431,7 +551,7 @@ const styles = StyleSheet.create({
   },
   eventImage: {
     width: "100%",
-    height: 200,
+    height: height * 0.45,
     borderRadius: 16,
     marginBottom: 15,
   },
@@ -606,5 +726,55 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_600SemiBold",
     fontSize: 18,
     color: "#333",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  optionsMenu: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+  },
+  optionsTitle: {
+    fontSize: 18,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#333",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  optionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+    backgroundColor: "#f8f8f8",
+  },
+  deleteOption: {
+    backgroundColor: "#fff5f5",
+  },
+  optionText: {
+    fontSize: 16,
+    fontFamily: "Poppins_500Medium",
+    color: "#333",
+  },
+  deleteText: {
+    color: "#ff4444",
+  },
+  cancelOption: {
+    paddingVertical: 15,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  cancelText: {
+    fontSize: 16,
+    fontFamily: "Poppins_500Medium",
+    color: "#666",
   },
 });

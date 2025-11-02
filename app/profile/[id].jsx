@@ -214,10 +214,10 @@ export default function ProfilePage() {
           });
 
           const token = await AsyncStorage.getItem("token");
-
+          
           const response = await api.post(
             `/auth/profile/picture`,
-            { profilePictureUrl: imageUrl },
+            { images: [imageUrl] },
             {
               headers: {
                 "Content-Type": "application/json",

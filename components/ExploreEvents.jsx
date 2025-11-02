@@ -77,7 +77,7 @@ export default function ExploreEvents({
               totalLikes: likeCount,
             };
           } catch (error) {
-            console.error(`Error fetching counts for event ${event._id}:`, error.message);
+            console.error(`Error fetching counts for event ${event}:`, error);
             return {
               ...event,
               totalComments: 0,
@@ -385,7 +385,13 @@ export default function ExploreEvents({
               </Text>
             </TouchableOpacity>
 
-            <Image source={{ uri: eventImage }} style={styles.flier} />
+            <View style={styles.flierContainer}>
+              <Image 
+                source={{ uri: eventImage }} 
+                style={styles.flier}
+                resizeMode="cover"
+              />
+            </View>
 
             <Text style={styles.eventTitle}>{event.name}</Text>
             <Text style={styles.caption}>{event.description}</Text>
@@ -449,7 +455,10 @@ export default function ExploreEvents({
 
               <TouchableOpacity
                 style={styles.statItem}
-                onPress={() => router.push(`/(tabs)/Events/${event._id}?tab=comments`)}
+                onPress={() => {
+                  console.log("Navigating to comments for event:", event._id);
+                  router.push(`/(tabs)/Events/${event._id}?tab=comments`)
+                }}
               >
                 <Ionicons name="chatbubble-outline" size={20} color="#555" />
                 <Text style={styles.statText}>{event.totalComments || 0}</Text>
@@ -523,8 +532,12 @@ const styles = StyleSheet.create({
   },
   flier: {
     width: "100%",
-    height: height * 0.5,
+    height: height * 0.45,
     borderRadius: 8,
+    // objectFit: "contain",
+    overflow: 'hidden',
+    backgroundColor: '#f0f0f0',
+    // aspectRatio: 16 / 9, 
   },
   eventTitle: {
     fontFamily: "Poppins_600SemiBold",

@@ -299,6 +299,11 @@ export default function Home() {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Ionicons name="close-circle" size={20} color="#999" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Filter Button */}
@@ -473,10 +478,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: Math.min(width * 0.04, 15),
     height: Math.min(height * 0.06, 48),
+    gap: 8,
   },
   searchInput: {
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 4,
     fontSize: Math.min(width * 0.037, 14),
     color: "#333",
     fontFamily: "Poppins_400Regular",
