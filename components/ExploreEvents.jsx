@@ -17,27 +17,44 @@ import { truncateText } from "../utils/truncateText";
 import api from "../utils/axiosInstance";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
+import { Video } from "expo-av";
+import { useToast } from '../context/ToastContext';
 
 const { width, height } = Dimensions.get("window");
 
 export default function ExploreEvents({ 
   userId = null, 
   events: propEvents = null,
-  isExploreMode = false 
+  isExploreMode = false,
+  isDraftMode = false // New prop to indicate if we're showing drafts
 }) {
   const router = useRouter();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
   const animations = useRef({}).current;
-
+  const toast = useToast();
   useEffect(() => {
+    const getCurrentUserId = async () => {
+      try {
+        const storedUser = await AsyncStorage.getItem("user");
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser); // parse the JSON string
+        setCurrentUserId(parsedUser);
+      }
+      } catch (error) {
+        console.error("Error getting current user ID:", error);
+      }
+    };
+    
+    getCurrentUserId();
     if (propEvents) {
       processEvents(propEvents);
     } else {
       fetchEvents();
     }
-  }, [userId, propEvents, isExploreMode]);
+  }, [userId, propEvents, isExploreMode, isDraftMode]);
 
   const processEvents = async (eventsData) => {
     try {
@@ -45,11 +62,21 @@ export default function ExploreEvents({
       const token = await AsyncStorage.getItem("token");
       const isGuest = await AsyncStorage.getItem("isGuest");
       
-      // Skip fetching comment counts if user is a guest (they can't access this endpoint)
+      // Skip comment/like fetching for drafts
+      if (isDraftMode) {
+        setEvents(eventsData.map(event => ({
+          ...event,
+          totalComments: 0,
+          totalLikes: 0,
+        })));
+        setLoading(false);
+        return;
+      }
+      
       if (isGuest === "true" || !token) {
         setEvents(eventsData.map(event => ({
           ...event,
-          totalComments: 0,  // Guest users can't fetch comment counts
+          totalComments: 0,
           totalLikes: event.likes?.length || event.likeCount || 0,
         })));
         setLoading(false);
@@ -59,12 +86,11 @@ export default function ExploreEvents({
       const eventsWithCounts = await Promise.all(
         eventsData.map(async (event) => {
           try {
-            // Fetch comments count with requiresAuth flag
             const commentsResponse = await api.get(
               `/event/comment?eventId=${event._id}`,
               { 
                 headers: { Authorization: `Bearer ${token}` },
-                requiresAuth: true  // Add this flag
+                requiresAuth: true
               }
             );
             
@@ -77,7 +103,7 @@ export default function ExploreEvents({
               totalLikes: likeCount,
             };
           } catch (error) {
-            console.error(`Error fetching counts for event ${event}:`, error);
+            console.error(`Error fetching counts for event ${event._id}:`, error);
             return {
               ...event,
               totalComments: 0,
@@ -95,7 +121,6 @@ export default function ExploreEvents({
     }
   };
   
-  // Also update fetchEvents function:
   const fetchEvents = async () => {
     try {
       setLoading(true);
@@ -105,22 +130,20 @@ export default function ExploreEvents({
       let url = "/event";
       let config = {};
       
-      // Check if user is in explore/guest mode
       if (isExploreMode || isGuest === "true") {
         url = "/event/explore";
         console.log("Fetching explore events (guest mode)");
-        // No auth required for explore
       } else if (userId) {
-        url = `/event/explore/key?value=${userId}&key=userId`;
+        url = `/event/key?value=${userId}&key=userId`;
         console.log("Fetching user specific events");
         config = {
           headers: { Authorization: `Bearer ${token}` },
-          requiresAuth: true  // Add this flag
+          requiresAuth: true
         };
       } else {
         config = {
           headers: { Authorization: `Bearer ${token}` },
-          requiresAuth: true  // Add this flag
+          requiresAuth: true
         };
       }
   
@@ -133,11 +156,12 @@ export default function ExploreEvents({
       }
     } catch (error) {
       console.error("Error fetching events:", error);
-      Toast.show({
-        type: "error",
-        text1: "Failed to load events",
-        text2: error.response?.data?.message || "Please try again",
-      });
+      // Toast.show({
+      //   type: "error",
+      //   text1: "Failed to load events",
+      //   text2: error.response?.data?.message || "Please try again",
+      // });
+      toast.error(error.response?.data?.error)
     } finally {
       setLoading(false);
     }
@@ -154,6 +178,14 @@ export default function ExploreEvents({
   };
 
   const handleLike = async (eventId, isLiked) => {
+    if (isDraftMode) {
+      Toast.show({
+        type: "info",
+        text1: "Cannot like draft events",
+      });
+      return;
+    }
+
     try {
       const token = await AsyncStorage.getItem("token");
       const isGuest = await AsyncStorage.getItem("isGuest");
@@ -202,21 +234,30 @@ export default function ExploreEvents({
         })
       );
 
-      Toast.show({
-        type: "success",
-        text1: isLiked ? "Unliked" : "Liked",
-      });
+      // Toast.show({
+      //   type: "success",
+      //   text1: isLiked ? "Unliked" : "Liked",
+      // });
     } catch (error) {
       console.error("Error liking event:", error);
-      Toast.show({
-        type: "error",
-        text1: "Action failed",
-        text2: error.response?.data?.message || "Please try again",
-      });
+      // Toast.show({
+      //   type: "error",
+      //   text1: "Action failed",
+      //   text2: error.response?.data?.message || "Please try again",
+      // });
+      toast.error(error.response?.data?.error)
     }
   };
 
   const handleBookmark = async (eventId, isBookmarked) => {
+    if (isDraftMode) {
+      Toast.show({
+        type: "info",
+        text1: "Cannot bookmark draft events",
+      });
+      return;
+    }
+
     try {
       const token = await AsyncStorage.getItem("token");
       const isGuest = await AsyncStorage.getItem("isGuest");
@@ -246,21 +287,30 @@ export default function ExploreEvents({
         )
       );
 
-      Toast.show({
-        type: "success",
-        text1: isBookmarked ? "Bookmark removed" : "Bookmarked",
-      });
+      // Toast.show({
+      //   type: "success",
+      //   text1: isBookmarked ? "Bookmark removed" : "Bookmarked",
+      // });
     } catch (error) {
       console.error("Error bookmarking event:", error);
-      Toast.show({
-        type: "error",
-        text1: "Action failed",
-        text2: error.response?.data?.message || "Please try again",
-      });
+      // Toast.show({
+      //   type: "error",
+      //   text1: "Action failed",
+      //   text2: error.response?.data?.message || "Please try again",
+      // });
+      toast.error(error.response?.data?.error)
     }
   };
 
   const handleInterested = async (eventId, isInterested) => {
+    if (isDraftMode) {
+      Toast.show({
+        type: "info",
+        text1: "Cannot mark interest in draft events",
+      });
+      return;
+    }
+
     try {
       const token = await AsyncStorage.getItem("token");
       const isGuest = await AsyncStorage.getItem("isGuest");
@@ -290,19 +340,25 @@ export default function ExploreEvents({
         )
       );
   
-      Toast.show({
-        type: "success",
-        text1: isInterested
-          ? "Interest cancelled"
-          : "Marked as interested",
-      });
+      // Toast.show({
+      //   type: "success",
+      //   text1: isInterested
+      //     ? "Interest cancelled"
+      //     : "Marked as interested",
+      // });
+      toast.success(isInterested ? "Interest cancelled" : "Marked as interested");
     } catch (error) {
-      console.error("Error marking interest:", error);
-      Toast.show({
-        type: "error",
-        text1: "Action failed",
-        text2: error.response?.data?.message || "Please try again",
-      });
+      console.error("Error marking interestss:", error.response?.data.error );
+      toast.error(`${error.response?.data.error}`);
+    }
+  };
+
+  const handleEventPress = (eventId) => {
+    // Navigate with isDraft parameter if in draft mode
+    if (isDraftMode) {
+      router.push(`/(tabs)/Events/${eventId}?isDraft=true`);
+    } else {
+      router.push(`/(tabs)/Events/${eventId}`);
     }
   };
 
@@ -324,6 +380,19 @@ export default function ExploreEvents({
     });
   };
 
+  const getEventMedia = (event) => {
+    if (event.videos && event.videos.length > 0) {
+      return { type: 'video', uri: event.videos[0] };
+    }
+    if (event.images && event.images.length > 0) {
+      return { type: 'image', uri: event.images[0] };
+    }
+    return { 
+      type: 'image', 
+      uri: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800" 
+    };
+  };
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -342,6 +411,8 @@ export default function ExploreEvents({
     );
   }
 
+  
+
   return (
     <ScrollView
       style={styles.container}
@@ -355,43 +426,66 @@ export default function ExploreEvents({
           animations[event._id] = new Animated.Value(1);
         }
 
-        const eventImage =
-          event.images && event.images.length > 0
-            ? event.images[0]
-            : "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800";
+        const media = getEventMedia(event);
+        const eventOwnerId = event.userId?._id || event.user?._id;
+        const isOwnEvent = currentUserId._id && eventOwnerId === currentUserId._id;
 
+        
         return (
           <View style={styles.eventCard} key={event._id}>
+            {/* Draft Badge */}
+            {isDraftMode && (
+              <View style={styles.draftBadge}>
+                <Ionicons name="document-text-outline" size={14} color="#FAB843" />
+                <Text style={styles.draftBadgeText}>DRAFT</Text>
+              </View>
+            )}
+
             <View style={styles.hostRow}>
               <Image
                 source={{
                   uri:
-                    event.userId?.profile_picture ||
+                    event.userId?.profile_picture || event.user?.profile_picture  ||
                     "https://cdn-icons-png.flaticon.com/512/149/149071.png",
                 }}
                 style={styles.hostAvatar}
               />
               <Text style={styles.host}>
-                {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
+                {event.userId?.firstname || event.user?.firstname || "Unknown"} {event.userId?.lastname || event.user?.lastname || ""}
               </Text>
             </View>
 
             <Text style={[styles.host, { marginTop: 20 }]}>Event Description</Text>
             <TouchableOpacity
-              onPress={() => router.push(`/(tabs)/Events/${event._id}`)}
+              onPress={() => handleEventPress(event._id)}
             >
               <Text style={styles.description}>
                 {truncateText(event.description, 300, "long")}
               </Text>
             </TouchableOpacity>
 
-            <View style={styles.flierContainer}>
-              <Image 
-                source={{ uri: eventImage }} 
-                style={styles.flier}
-                resizeMode="cover"
-              />
-            </View>
+            <TouchableOpacity 
+              style={styles.flierContainer}
+              onPress={() => handleEventPress(event._id)}
+              activeOpacity={0.9}
+            >
+              {media.type === 'video' ? (
+                <Video
+                  source={{ uri: media.uri }}
+                  style={styles.flier}
+                  useNativeControls
+                  resizeMode="contain"
+                  isLooping
+                  shouldPlay={false}
+                />
+              ) : (
+                <Image 
+                  source={{ uri: media.uri }} 
+                  style={styles.flier}
+                  resizeMode="cover"
+                />
+              )}
+            </TouchableOpacity>
 
             <Text style={styles.eventTitle}>{event.name}</Text>
             <Text style={styles.caption}>{event.description}</Text>
@@ -413,76 +507,92 @@ export default function ExploreEvents({
                 </Text>
               </View>
             </View>
-
+            { }
             <View style={styles.priceRow}>
-              <TouchableOpacity
-                style={[
-                  styles.interestedBtn,
-                  event.hasInterested && { backgroundColor: "#ccc" },
-                ]}
-                onPress={() => handleInterested(event._id, event.hasInterested)}
-              >
-                <Text style={styles.interestedText}>
-                  {event.hasInterested ? "Cancel Interest" : "Interested"}
-                </Text>
-              </TouchableOpacity>
+            {!isDraftMode && !isOwnEvent && (
+                <TouchableOpacity
+                  style={[
+                    styles.interestedBtn,
+                    event.hasInterested && { backgroundColor: "#ccc" }
+                  ]}
+                  onPress={() => handleInterested(event._id, event.hasInterested)}
+                >
+                  <Text style={styles.interestedText}>
+                    {event.hasInterested ? "Cancel Interest" : "Interested"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              
+              {/* For drafts, show "View Draft" button */}
+              {isDraftMode && (
+                <TouchableOpacity
+                  style={[styles.interestedBtn, styles.draftBtn]}
+                  onPress={() => router.replace(`/(tabs)/Events/${event._id}?isDraft=true`)}
+                >
+                  <Text style={styles.interestedText}>View Draft</Text>
+                </TouchableOpacity>
+              )}
+
 
               <Text style={styles.price}>
                 {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
               </Text>
             </View>
 
-            <View style={styles.statsRow}>
-              <TouchableOpacity
-                onPress={() => handleLike(event._id, event.hasLiked)}
-              >
-                <Animated.View
-                  style={{
-                    transform: [{ scale: animations[event._id] }],
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
+            {/* Only show stats for non-draft events */}
+            {!isDraftMode && (
+              <View style={styles.statsRow}>
+                <TouchableOpacity
+                  onPress={() => handleLike(event._id, event.hasLiked)}
+                >
+                  <Animated.View
+                    style={{
+                      transform: [{ scale: animations[event._id] }],
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Ionicons
+                      name={event.hasLiked ? "heart" : "heart-outline"}
+                      size={24}
+                      color={event.hasLiked ? "red" : "#555"}
+                    />
+                    <Text style={styles.likesText}>{event.totalLikes || 0}</Text>
+                  </Animated.View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.statItem}
+                  onPress={() => {
+                    console.log("Navigating to comments for event:", event._id);
+                    router.push(`/(tabs)/Events/${event._id}?tab=comments`)
                   }}
                 >
+                  <Ionicons name="chatbubble-outline" size={20} color="#555" />
+                  <Text style={styles.statText}>{event.totalComments || 0}</Text>
+                </TouchableOpacity>
+
+                <View style={styles.statItem}>
+                  <Ionicons name="eye-outline" size={20} color="#555" />
+                  <Text style={styles.statText}>{event.hasViewed ? "✓" : ""}</Text>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => handleBookmark(event._id, event.hasBookmarked)}
+                >
                   <Ionicons
-                    name={event.hasLiked ? "heart" : "heart-outline"}
-                    size={24}
-                    color={event.hasLiked ? "red" : "#555"}
+                    name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+                    size={20}
+                    color={event.hasBookmarked ? "#5A31F4" : "#555"}
                   />
-                  <Text style={styles.likesText}>{event.totalLikes || 0}</Text>
-                </Animated.View>
-              </TouchableOpacity>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.statItem}
-                onPress={() => {
-                  console.log("Navigating to comments for event:", event._id);
-                  router.push(`/(tabs)/Events/${event._id}?tab=comments`)
-                }}
-              >
-                <Ionicons name="chatbubble-outline" size={20} color="#555" />
-                <Text style={styles.statText}>{event.totalComments || 0}</Text>
-              </TouchableOpacity>
-
-              <View style={styles.statItem}>
-                <Ionicons name="eye-outline" size={20} color="#555" />
-                <Text style={styles.statText}>{event.hasViewed ? "✓" : ""}</Text>
+                <TouchableOpacity>
+                  <Ionicons name="share-social-outline" size={20} color="#555" />
+                </TouchableOpacity>
               </View>
-
-              <TouchableOpacity
-                onPress={() => handleBookmark(event._id, event.hasBookmarked)}
-              >
-                <Ionicons
-                  name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
-                  size={20}
-                  color={event.hasBookmarked ? "#5A31F4" : "#555"}
-                />
-              </TouchableOpacity>
-
-              <TouchableOpacity>
-                <Ionicons name="share-social-outline" size={20} color="#555" />
-              </TouchableOpacity>
-            </View>
+            )}
           </View>
         );
       })}
@@ -511,6 +621,24 @@ const styles = StyleSheet.create({
     color: "#999",
     fontSize: 16,
   },
+  draftBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    backgroundColor: "#FDECCD",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#FAB843",
+  },
+  draftBadgeText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 10,
+    color: "#FAB843",
+  },
   eventCard: {
     marginBottom: 25,
   },
@@ -525,19 +653,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   description: {
-    fontFamily: "Poppins_300Light",
-    color: "#666",
+    fontFamily: "Poppins_400Regular",
+    color: "#444",
     marginVertical: 8,
-    fontSize: 12,
+    fontSize: 14,
   },
-  flier: {
+  flierContainer: {
     width: "100%",
     height: height * 0.45,
     borderRadius: 8,
-    // objectFit: "contain",
     overflow: 'hidden',
     backgroundColor: '#f0f0f0',
-    // aspectRatio: 16 / 9, 
+  },
+  flier: {
+    width: "100%",
+    height: "100%",
   },
   eventTitle: {
     fontFamily: "Poppins_600SemiBold",
@@ -596,6 +726,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  draftBtn: {
+    backgroundColor: "#FAB843",
+  },
   interestedText: {
     color: "#fff",
     fontFamily: "Poppins_500Medium",
@@ -649,4 +782,4 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     backgroundColor: "#ddd",
   },
-}); 
+});

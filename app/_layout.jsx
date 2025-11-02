@@ -7,6 +7,7 @@ import { tokenCache } from '../utils/cache';
 import { ClerkProvider, ClerkLoaded } from '@clerk/clerk-expo';
 import { Text } from "react-native";
 import { useEffect } from "react";
+import { ToastProvider } from "../context/ToastContext";
 // import * as SplashScreen from "expo-splash-screen";
 const publishableKey = 'pk_test_Z2VuZXJvdXMtbXVsbGV0LTQyLmNsZXJrLmFjY291bnRzLmRldiQ'
 
@@ -41,7 +42,10 @@ export default function RootLayout() {
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
       <ClerkLoaded>
         <AuthProvider>
+          <ToastProvider>
+
           <Stack screenOptions={{ headerShown: false }} />
+          </ToastProvider>
           <Toast />
         </AuthProvider>
       </ClerkLoaded>

@@ -27,7 +27,6 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
   const toggleAnim = useRef(new Animated.Value(0)).current;
-
   // Subtle animations
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const headerY = useRef(new Animated.Value(-10)).current;

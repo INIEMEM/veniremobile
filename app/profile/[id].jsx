@@ -368,11 +368,11 @@ export default function ProfilePage() {
         </View>
 
         {/* Followers */}
-        <View style={styles.statsRow}>
+        {/* <View style={styles.statsRow}>
           <Text style={styles.statText}>{user.followingCount || 0} Following</Text>
           <View style={styles.dot} />
           <Text style={styles.statText}>{user.followerCount || 0} Followers</Text>
-        </View>
+        </View> */}
       </View>
 
       {/* Logout button */}

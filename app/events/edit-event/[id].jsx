@@ -22,19 +22,21 @@ import api from '../../../utils/axiosInstance';
 import CustomLoader from '../../../components/CustomFormLoader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-
+import { Video } from 'expo-av';
+import { useToast } from '../../../context/ToastContext';
 const { width, height } = Dimensions.get('window');
 
 export default function EditEvent() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id , isDraft} = useLocalSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState([]);
-  const [selectedImages, setSelectedImages] = useState([]);
+  const [selectedMedia, setSelectedMedia] = useState([]);
   const [existingImages, setExistingImages] = useState([]);
+  const [existingVideos, setExistingVideos] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
-
+  const toast = useToast();
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -88,7 +90,11 @@ export default function EditEvent() {
       setLoading(true);
       const token = await AsyncStorage.getItem('token');
       
-      const response = await api.get(`/event?key=id&value=${id}`, {
+      const endpoint = isDraft 
+        ? `/event/draft/key?key=_id&value=${id}`
+        : `/event/key?key=_id&value=${id}`;
+
+      const response = await api.get(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -97,8 +103,40 @@ export default function EditEvent() {
         
         // Parse start date
         const startDate = new Date(event.start);
-        const endDate = new Date(event.end);
-
+        let startDateFields = {
+          startDay: '',
+          startMonth: '',
+          startYear: '',
+          startHour: '',
+          startMinute: '',
+        }
+        let endDateFields = {
+          endDay: '',
+          endMonth: '',
+          endYear: '',
+          endHour: '',
+          endMinute: '',
+        };
+        
+        if (event.end) {
+          const endDate = new Date(event.end);
+          endDateFields = {
+            endDay: endDate.getDate().toString().padStart(2, '0'),
+            endMonth: (endDate.getMonth() + 1).toString().padStart(2, '0'),
+            endYear: endDate.getFullYear().toString(),
+            endHour: endDate.getHours().toString().padStart(2, '0'),
+            endMinute: endDate.getMinutes().toString().padStart(2, '0'),
+          };
+        } 
+        if(event.start) {
+          startDateFields = {
+            startDay: startDate.getDate().toString().padStart(2, '0'),
+            startMonth: (startDate.getMonth() + 1).toString().padStart(2, '0'),
+            startYear: startDate.getFullYear().toString(),
+            startHour: startDate.getHours().toString().padStart(2, '0'),
+            startMinute: startDate.getMinutes().toString().padStart(2, '0'),
+          };
+        }
         setForm({
           name: event.name || '',
           description: event.description || '',
@@ -110,31 +148,22 @@ export default function EditEvent() {
           ticketAmount: event.ticketAmount?.toString() || '0',
           isSponsored: event.isSponsored || false,
           sponsorAmount: event.sponsorAmount?.toString() || '0',
-          startDay: startDate.getDate().toString().padStart(2, '0'),
-          startMonth: (startDate.getMonth() + 1).toString().padStart(2, '0'),
-          startYear: startDate.getFullYear().toString(),
-          startHour: startDate.getHours().toString().padStart(2, '0'),
-          startMinute: startDate.getMinutes().toString().padStart(2, '0'),
-          endDay: endDate.getDate().toString().padStart(2, '0'),
-          endMonth: (endDate.getMonth() + 1).toString().padStart(2, '0'),
-          endYear: endDate.getFullYear().toString(),
-          endHour: endDate.getHours().toString().padStart(2, '0'),
-          endMinute: endDate.getMinutes().toString().padStart(2, '0'),
+          ...startDateFields,
+          ...endDateFields,
           categoryId: event.categoryId?._id || event.categoryId || '',
         });
 
-        // Set existing images
+        // Set existing images and videos
         if (event.images && event.images.length > 0) {
           setExistingImages(event.images);
         }
+        if (event.videos && event.videos.length > 0) {
+          setExistingVideos(event.videos);
+        }
       }
-    } catch (error) {
+    } catch (error) { 
       console.error('Error fetching event details:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to load event',
-        text2: error.response?.data?.message || 'Please try again',
-      });
+      toast.error(error.response?.data?.error || 'Failed to load event. Please try again.');
       router.back();
     } finally {
       setLoading(false);
@@ -153,41 +182,63 @@ export default function EditEvent() {
     }
   };
 
-  const pickImages = async () => {
+  const pickMedia = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsMultipleSelection: true,
         quality: 0.8,
         selectionLimit: 5,
+        videoMaxDuration: 60,
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
       });
 
       if (!result.canceled && result.assets) {
-        const newImages = result.assets.map((asset) => ({
-          uri: asset.uri,
-          type: asset.type || 'image/jpeg',
-          name: asset.fileName || `event_image_${Date.now()}.jpg`,
-        }));
-        setSelectedImages([...selectedImages, ...newImages]);
+        const newMedia = result.assets.map((asset) => {
+          let mimeType = 'application/octet-stream';
+          if (asset.type === 'video') {
+            mimeType = asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
+          } else {
+            mimeType = 'image/jpeg';
+          }
+
+          return {
+            uri: asset.uri,
+            type: asset.type === 'video' ? 'video' : 'image',
+            mimeType: mimeType,
+            name: asset.fileName || `event_${asset.type}_${Date.now()}.${asset.type === 'video' ? 'mp4' : 'jpg'}`,
+            fileSize: asset.fileSize,
+          };
+        });
+
+        // Check file sizes
+        const oversizedFiles = newMedia.filter(m => m.fileSize && m.fileSize > 50 * 1024 * 1024);
+        if (oversizedFiles.length > 0) {
+          toast.error('Please select videos smaller than 50MB');
+          return;
+        }
+
+        setSelectedMedia([...selectedMedia, ...newMedia]);
       }
     } catch (error) {
-      console.error('Error picking images:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Failed to pick images',
-      });
+      console.error('Error picking media:', error);
+      toast.error('Failed to pick media. Please try again.');
     }
   };
 
-  const removeImage = (index) => {
-    const updatedImages = selectedImages.filter((_, i) => i !== index);
-    setSelectedImages(updatedImages);
+  const removeMedia = (index) => {
+    const updatedMedia = selectedMedia.filter((_, i) => i !== index);
+    setSelectedMedia(updatedMedia);
   };
 
   const removeExistingImage = (index) => {
     const updatedImages = existingImages.filter((_, i) => i !== index);
     setExistingImages(updatedImages);
+  };
+
+  const removeExistingVideo = (index) => {
+    const updatedVideos = existingVideos.filter((_, i) => i !== index);
+    setExistingVideos(updatedVideos);
   };
 
   const handleChange = (key, value) => {
@@ -197,6 +248,10 @@ export default function EditEvent() {
   const getSignedUrl = async (fileName, fileType) => {
     try {
       const token = await AsyncStorage.getItem('token');
+      
+      console.log('Requesting signed URL with:');
+      console.log('  fileName:', fileName);
+      console.log('  fileType:', fileType);
      
       const response = await api.put(
         '/auth/sign-s3',
@@ -206,6 +261,7 @@ export default function EditEvent() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
+          timeout: 30000,
         }
       );
 
@@ -216,19 +272,25 @@ export default function EditEvent() {
     }
   };
 
-  const uploadImageToS3 = async (imageUri, uploadURL) => {
+  const uploadMediaToS3 = async (mediaUri, uploadURL, mimeType) => {
     try {
-      const response = await fetch(imageUri);
+      const response = await fetch(mediaUri);
       const blob = await response.blob();
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       const uploadResponse = await fetch(uploadURL, {
         method: 'PUT',
         body: blob,
-        headers: { 'Content-Type': blob.type },
+        headers: { 'Content-Type': mimeType },
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!uploadResponse.ok) {
-        throw new Error('Failed to upload image to S3');
+        throw new Error('Failed to upload media to S3');
       }
 
       return true;
@@ -238,28 +300,35 @@ export default function EditEvent() {
     }
   };
 
-  const uploadNewImages = async () => {
-    const uploadedUrls = [];
+  const uploadNewMedia = async () => {
+    const uploadedImages = [];
+    const uploadedVideos = [];
 
-    for (let i = 0; i < selectedImages.length; i++) {
-      const image = selectedImages[i];
-      setUploadProgress(`Uploading image ${i + 1} of ${selectedImages.length}...`);
+    for (let i = 0; i < selectedMedia.length; i++) {
+      const media = selectedMedia[i];
+      const sizeInMB = media.fileSize ? (media.fileSize / (1024 * 1024)).toFixed(2) : 'unknown';
+      setUploadProgress(`Uploading ${media.type} ${i + 1}/${selectedMedia.length} (${sizeInMB}MB)...`);
 
       try {
-        const signedData = await getSignedUrl(image.name, image.type);
+        const signedData = await getSignedUrl(media.name, media.mimeType);
         const { uploadURL } = signedData;
       
-        await uploadImageToS3(image.uri, uploadURL);
-        const imageUrl = uploadURL.split('?')[0];
-        uploadedUrls.push(imageUrl);
+        await uploadMediaToS3(media.uri, uploadURL, media.mimeType);
+        const mediaUrl = uploadURL.split('?')[0];
+        
+        if (media.type === 'video') {
+          uploadedVideos.push(mediaUrl);
+        } else {
+          uploadedImages.push(mediaUrl);
+        }
       } catch (error) {
-        console.error(`Error uploading image ${i + 1}:`, error);
-        throw new Error(`Failed to upload image ${i + 1}`);
+        console.error(`Error uploading ${media.type} ${i + 1}:`, error);
+        throw new Error(`Failed to upload ${media.type} ${i + 1}`);
       }
     }
 
     setUploadProgress('');
-    return uploadedUrls;
+    return { images: uploadedImages, videos: uploadedVideos };
   };
 
   const handleUpdateEvent = async () => {
@@ -267,57 +336,41 @@ export default function EditEvent() {
 
     // Validation
     if (!name.trim()) {
-      return Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'Event name is required',
-      });
+      return toast.error('Event name is required');
     }
 
     if (!description.trim()) {
-      return Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'Event description is required',
-      });
+      return toast.error('Event description is required');
     }
 
     if (!address.trim()) {
-      return Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'Event address is required',
-      });
+      return toast.error('Event address is required');
     }
 
     if (!capacity || parseInt(capacity) <= 0) {
-      return Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'Please enter a valid capacity',
-      });
+      return toast.error('Please enter a valid capacity');
     }
 
     if (!categoryId) {
-      return Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'Please select an event category',
-      });
+      return  toast.error('Please select a category');
     }
 
     try {
       setIsSubmitting(true);
 
-      // Upload new images if any
-      let newImageUrls = [];
-      if (selectedImages.length > 0) {
-        setUploadProgress('Uploading new images...');
-        newImageUrls = await uploadNewImages();
+      // Upload new media if any
+      let newImages = [];
+      let newVideos = [];
+      if (selectedMedia.length > 0) {
+        setUploadProgress('Uploading new media...');
+        const uploaded = await uploadNewMedia();
+        newImages = uploaded.images;
+        newVideos = uploaded.videos;
       }
 
-      // Combine existing and new images
-      const allImages = [...existingImages, ...newImageUrls];
+      // Combine existing and new media
+      const allImages = [...existingImages, ...newImages];
+      const allVideos = [...existingVideos, ...newVideos];
 
       setUploadProgress('Updating event...');
       const token = await AsyncStorage.getItem('token');
@@ -325,9 +378,16 @@ export default function EditEvent() {
       const startDate = new Date(
         `${form.startYear}-${form.startMonth}-${form.startDay}T${form.startHour}:${form.startMinute}:00.000Z`
       );
-      const endDate = new Date(
-        `${form.endYear}-${form.endMonth}-${form.endDay}T${form.endHour}:${form.endMinute}:00.000Z`
-      );
+      let endDate = null;
+      if (form.endYear && form.endMonth && form.endDay) {
+        endDate = new Date(
+          `${form.endYear}-${form.endMonth?.padStart(2, '0')}-${form.endDay?.padStart(2, '0')}T${form.endHour?.padStart(2, '0') || '00'}:${form.endMinute?.padStart(2, '0') || '00'}:00.000Z`
+        );
+
+        if (isNaN(endDate.getTime())) {
+          return toast.error('Invalid end date. Please check your input.');
+        }
+      }
 
       const eventData = {
         name: name.trim(),
@@ -341,9 +401,11 @@ export default function EditEvent() {
         isSponsored: isSponsored,
         sponsorAmount: isSponsored ? parseFloat(sponsorAmount) || 0 : 0,
         start: startDate.toISOString(),
-        end: endDate.toISOString(),
+        ...(endDate && { end: endDate.toISOString() }),
         categoryId: typeof categoryId === 'object' ? categoryId._id : categoryId,
-        image: allImages,
+        type: allVideos.length > 0 ? 'videos' : 'images',
+        ...(allImages.length > 0 && { images: allImages }),
+        ...(allVideos.length > 0 && { videos: allVideos }),
       };
 
       const response = await api.put(`/event/${id}`, eventData, {
@@ -353,24 +415,15 @@ export default function EditEvent() {
         },
       });
 
-      Toast.show({
-        type: 'success',
-        text1: 'Success! 🎉',
-        text2: 'Event updated successfully',
-      });
-
+      toast.success('Event updated successfully');
       router.back();
     } catch (error) {
       console.error('Error updating event:', error.response || error);
       const message =
-        error.response?.data?.message ||
+        error.response?.data?.error ||
         error.message ||
         'Failed to update event. Please try again.';
-      Toast.show({
-        type: 'error',
-        text1: 'Update Failed',
-        text2: message,
-      });
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
       setUploadProgress('');
@@ -448,33 +501,89 @@ export default function EditEvent() {
               </View>
             )}
 
-            {/* New Event Images */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Add New Images (Optional)</Text>
-              <TouchableOpacity style={styles.imagePickerButton} onPress={pickImages}>
-                <Text style={styles.imagePickerIcon}>📷</Text>
-                <Text style={styles.imagePickerText}>
-                  {selectedImages.length > 0
-                    ? `${selectedImages.length} new image(s) selected`
-                    : 'Add More Images'}
-                </Text>
-              </TouchableOpacity>
-
-              {selectedImages.length > 0 && (
+            {/* Existing Event Videos */}
+            {existingVideos.length > 0 && (
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Current Videos</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   style={styles.imagePreviewContainer}
                 >
-                  {selectedImages.map((image, index) => (
+                  {existingVideos.map((videoUrl, index) => (
                     <View key={index} style={styles.imagePreviewWrapper}>
-                      <Image source={{ uri: image.uri }} style={styles.imagePreview} />
+                      <Video
+                        source={{ uri: videoUrl }}
+                        style={styles.imagePreview}
+                        useNativeControls={false}
+                        resizeMode="cover"
+                        shouldPlay={false}
+                      />
+                      <View style={styles.videoOverlay}>
+                        <Text style={styles.videoIcon}>▶️</Text>
+                      </View>
                       <TouchableOpacity
                         style={styles.removeImageButton}
-                        onPress={() => removeImage(index)}
+                        onPress={() => removeExistingVideo(index)}
                       >
                         <Text style={styles.removeImageText}>×</Text>
                       </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* New Event Media */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Add New Media (Optional)</Text>
+              <TouchableOpacity style={styles.imagePickerButton} onPress={pickMedia}>
+                <Text style={styles.imagePickerIcon}>🎬</Text>
+                <Text style={styles.imagePickerText}>
+                  {selectedMedia.length > 0
+                    ? `${selectedMedia.length} file(s) selected`
+                    : 'Add Images or Videos'}
+                </Text>
+                <Text style={styles.imagePickerSubtext}>
+                  Images and videos up to 60 seconds
+                </Text>
+              </TouchableOpacity>
+
+              {selectedMedia.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.imagePreviewContainer}
+                >
+                  {selectedMedia.map((media, index) => (
+                    <View key={index} style={styles.imagePreviewWrapper}>
+                      {media.type === 'video' ? (
+                        <View>
+                          <Video
+                            source={{ uri: media.uri }}
+                            style={styles.imagePreview}
+                            useNativeControls={false}
+                            resizeMode="cover"
+                            shouldPlay={false}
+                          />
+                          <View style={styles.videoOverlay}>
+                            <Text style={styles.videoIcon}>▶️</Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <Image source={{ uri: media.uri }} style={styles.imagePreview} />
+                      )}
+                      <TouchableOpacity
+                        style={styles.removeImageButton}
+                        onPress={() => removeMedia(index)}
+                      >
+                        <Text style={styles.removeImageText}>×</Text>
+                      </TouchableOpacity>
+                      <View style={styles.mediaTypeBadge}>
+                        <Text style={styles.mediaTypeText}>
+                          {media.type === 'video' ? '🎥' : '📷'}
+                        </Text>
+                      </View>
                     </View>
                   ))}
                 </ScrollView>
@@ -523,7 +632,7 @@ export default function EditEvent() {
             {/* Location Coordinates */}
             <View style={styles.row}>
               <View style={styles.halfInputContainer}>
-                <Text style={styles.label}>Latitude (Optional)</Text>
+                <Text style={styles.label}>Latitude *</Text>
                 <TextInput
                   style={styles.input}
                   value={form.lat}
@@ -534,7 +643,7 @@ export default function EditEvent() {
                 />
               </View>
               <View style={styles.halfInputContainer}>
-                <Text style={styles.label}>Longitude (Optional)</Text>
+                <Text style={styles.label}>Longitude *</Text>
                 <TextInput
                   style={styles.input}
                   value={form.long}
@@ -548,7 +657,7 @@ export default function EditEvent() {
 
             {/* Capacity */}
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Capacity *</Text>
+              <Text style={styles.label}>How many people would be attending this event  *</Text>
               <TextInput
                 style={styles.input}
                 value={form.capacity}
@@ -638,7 +747,7 @@ export default function EditEvent() {
 
             {/* End Date & Time */}
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>End Date & Time *</Text>
+              <Text style={styles.label}>End Date & Time </Text>
               <View style={styles.dateTimeRow}>
                 <TextInput
                   style={[styles.dateTimeInput, { flex: 1 }]}
@@ -853,6 +962,12 @@ const styles = StyleSheet.create({
     color: '#5A31F4',
     fontFamily: 'Poppins_500Medium',
   },
+  imagePickerSubtext: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    fontFamily: 'Poppins_400Regular',
+  },
   imagePreviewContainer: {
     marginTop: 12,
   },
@@ -865,6 +980,20 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 8,
     backgroundColor: '#f0f0f0',
+  },
+  videoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 8,
+  },
+  videoIcon: {
+    fontSize: 32,
   },
   removeImageButton: {
     position: 'absolute',
@@ -882,6 +1011,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginTop: -2,
+  },
+  mediaTypeBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  mediaTypeText: {
+    fontSize: 14,
   },
   row: {
     flexDirection: 'row',

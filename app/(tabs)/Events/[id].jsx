@@ -15,6 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { Dimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Video } from "expo-av";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
@@ -24,7 +25,7 @@ import api from "../../../utils/axiosInstance";
 const { width, height } = Dimensions.get("window");
 
 export default function EventDetailsScreen() {
-  const { id } = useLocalSearchParams();
+  const { id, isDraft } = useLocalSearchParams();
   const router = useRouter();
   const animations = useRef({}).current;
   
@@ -35,13 +36,14 @@ export default function EventDetailsScreen() {
   const [currentUserId, setCurrentUserId] = useState(null);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     if (id) {
       fetchEventDetails();
       getCurrentUser();
     }
-  }, [id]);
+  }, [id, isDraft]);
 
   const getCurrentUser = async () => {
     try {
@@ -60,18 +62,26 @@ export default function EventDetailsScreen() {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
 
-      const response = await api.get(`/event/key?key=_id&value=${id}`, {
+      // Use different endpoint based on whether it's a draft
+      const endpoint = isDraft 
+        ? `/event/draft/key?key=_id&value=${id}`
+        : `/event/key?key=_id&value=${id}`;
+
+      const response = await api.get(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (response.data.success) {
-        setEvent(response.data.data[0]);
+        const eventData = Array.isArray(response.data.data) 
+          ? response.data.data[0] 
+          : response.data.data;
+        setEvent(eventData);
       }
     } catch (error) {
       console.error("Error fetching event details:", error);
       Toast.show({
         type: "error",
-        text1: "Failed to load event",
+        text1: `Failed to load ${isDraft ? 'draft' : 'event'}`,
         text2: error.response?.data?.message || "Please try again",
       });
     } finally {
@@ -86,7 +96,13 @@ export default function EventDetailsScreen() {
   };
 
   const handleLike = async () => {
-    if (!event) return;
+    if (!event || isDraft) {
+      Toast.show({
+        type: "info",
+        text1: "Cannot like draft events",
+      });
+      return;
+    }
 
     try {
       const token = await AsyncStorage.getItem("token");
@@ -136,7 +152,13 @@ export default function EventDetailsScreen() {
   };
 
   const handleBookmark = async () => {
-    if (!event) return;
+    if (!event || isDraft) {
+      Toast.show({
+        type: "info",
+        text1: "Cannot bookmark draft events",
+      });
+      return;
+    }
 
     try {
       const token = await AsyncStorage.getItem("token");
@@ -168,7 +190,13 @@ export default function EventDetailsScreen() {
   };
 
   const handleInterested = async () => {
-    if (!event) return;
+    if (!event || isDraft) {
+      Toast.show({
+        type: "info",
+        text1: "Cannot mark interest in draft events",
+      });
+      return;
+    }
 
     try {
       const token = await AsyncStorage.getItem("token");
@@ -195,8 +223,8 @@ export default function EventDetailsScreen() {
 
   const handleDeleteEvent = () => {
     Alert.alert(
-      "Delete Event",
-      "Are you sure you want to delete this event? This action cannot be undone.",
+      isDraft ? "Delete Draft" : "Delete Event",
+      `Are you sure you want to delete this ${isDraft ? 'draft' : 'event'}? This action cannot be undone.`,
       [
         {
           text: "Cancel",
@@ -216,18 +244,23 @@ export default function EventDetailsScreen() {
       setDeleting(true);
       const token = await AsyncStorage.getItem("token");
 
-      await api.delete(`/event/${event._id}`, {
+      // Use different endpoint for drafts
+      const endpoint = isDraft 
+        ? `/event/draft/${event._id}`
+        : `/event/${event._id}`;
+
+      await api.delete(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       Toast.show({
         type: "success",
-        text1: "Event deleted successfully",
+        text1: isDraft ? "Draft deleted successfully" : "Event deleted successfully",
       });
 
       router.back();
     } catch (error) {
-      console.error("Error deleting event:", error);
+      console.error("Error deleting:", error);
       Toast.show({
         type: "error",
         text1: "Delete failed",
@@ -241,7 +274,59 @@ export default function EventDetailsScreen() {
 
   const handleEditEvent = () => {
     setShowOptionsMenu(false);
-    router.push(`/events/edit-event/${event._id}`);
+    if (isDraft) {
+      router.push(`/events/edit-event/${event._id}?isDraft=true`);
+    } else {
+      router.push(`/events/edit-event/${event._id}`);
+    }
+  };
+
+  const handlePublishDraft = async () => {
+    Alert.alert(
+      "Publish Draft",
+      "Are you sure you want to publish this draft event?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Publish",
+          onPress: confirmPublish,
+        },
+      ]
+    );
+  };
+
+  const confirmPublish = async () => {
+    try {
+      setPublishing(true);
+      const token = await AsyncStorage.getItem("token");
+
+      await api.post(
+        `/event/draft/publish/${event._id}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      Toast.show({
+        type: "success",
+        text1: "Draft published successfully",
+      });
+
+      // Navigate back and refresh
+      router.back();
+    } catch (error) {
+      console.error("Error publishing draft:", error);
+      Toast.show({
+        type: "error",
+        text1: "Publish failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    } finally {
+      setPublishing(false);
+      setShowOptionsMenu(false);
+    }
   };
 
   const formatDate = (dateString) => {
@@ -262,11 +347,26 @@ export default function EventDetailsScreen() {
     });
   };
 
+  const getEventMedia = (event) => {
+    if (event.videos && event.videos.length > 0) {
+      return { type: 'video', uri: event.videos[0] };
+    }
+    if (event.images && event.images.length > 0) {
+      return { type: 'image', uri: event.images[0] };
+    }
+    return { 
+      type: 'image', 
+      uri: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800" 
+    };
+  };
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#5A31F4" />
-        <Text style={styles.loadingText}>Loading event...</Text>
+        <Text style={styles.loadingText}>
+          Loading {isDraft ? 'draft' : 'event'}...
+        </Text>
       </View>
     );
   }
@@ -275,7 +375,9 @@ export default function EventDetailsScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="alert-circle-outline" size={64} color="#ccc" />
-        <Text style={styles.emptyText}>Event not found</Text>
+        <Text style={styles.emptyText}>
+          {isDraft ? 'Draft' : 'Event'} not found
+        </Text>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
@@ -286,10 +388,7 @@ export default function EventDetailsScreen() {
     );
   }
 
-  const eventImage =
-    event.images && event.images.length > 0
-      ? event.images[0]
-      : "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800";
+  const media = getEventMedia(event);
 
   const organizerImage =
     event.userId?.profile_picture ||
@@ -297,7 +396,7 @@ export default function EventDetailsScreen() {
       (event.userId?.firstname?.charAt(0) || "U");
 
   const isOwner = currentUserId && event.userId?._id === currentUserId;
-console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?._id);
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
@@ -307,7 +406,17 @@ console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?.
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <Text style={styles.title}>Event Details</Text>
+        {/* Draft Badge */}
+        {isDraft && (
+          <View style={styles.draftBadge}>
+            <Ionicons name="document-text-outline" size={16} color="#FAB843" />
+            <Text style={styles.draftBadgeText}>DRAFT</Text>
+          </View>
+        )}
+
+        <Text style={styles.title}>
+          {isDraft ? 'Draft Details' : 'Event Details'}
+        </Text>
 
         {/* Organizer Info */}
         <View style={styles.avatarContainer}>
@@ -322,12 +431,10 @@ console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?.
             </View>
           </View>
           <View>
-            {isOwner ? (
+            {isOwner && (
               <TouchableOpacity onPress={() => setShowOptionsMenu(true)}>
                 <Ionicons name="ellipsis-vertical" size={20} color="#888" />
               </TouchableOpacity>
-            ) : (
-              <Ionicons name="ellipsis-vertical" size={20} color="#888" />
             )}
           </View>
         </View>
@@ -338,8 +445,21 @@ console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?.
         </Text>
         <Text style={styles.desc}>{event.description}</Text>
 
-        {/* Event Image */}
-        <Image source={{ uri: eventImage }} style={styles.eventImage} />
+        {/* Event Media */}
+        <View style={styles.mediaContainer}>
+          {media.type === 'video' ? (
+            <Video
+              source={{ uri: media.uri }}
+              style={styles.eventMedia}
+              useNativeControls
+              resizeMode="contain"
+              isLooping
+              shouldPlay={false}
+            />
+          ) : (
+            <Image source={{ uri: media.uri }} style={styles.eventMedia} />
+          )}
+        </View>
 
         {/* Event Info */}
         <View style={styles.eventDetails}>
@@ -367,107 +487,126 @@ console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?.
           </View>
 
           <View style={styles.priceRow}>
-            <TouchableOpacity
-              style={styles.interestedBtn}
-              onPress={handleInterested}
-            >
-              <Text style={styles.interestedText}>Interested</Text>
-            </TouchableOpacity>
+            {!isDraft && (
+              <TouchableOpacity
+                style={styles.interestedBtn}
+                onPress={handleInterested}
+              >
+                <Text style={styles.interestedText}>Interested</Text>
+              </TouchableOpacity>
+            )}
+            {/* {isDraft && (
+              <TouchableOpacity
+                style={[styles.interestedBtn, styles.publishBtn]}
+                onPress={handlePublishDraft}
+                disabled={publishing}
+              >
+                <Text style={styles.interestedText}>
+                  {publishing ? "Publishing..." : "Publish Draft"}
+                </Text>
+              </TouchableOpacity>
+            )} */}
             <Text style={styles.price}>
               {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
             </Text>
           </View>
 
-          {/* Stats Row */}
-          <View style={styles.statsRow}>
-            <TouchableOpacity onPress={handleLike}>
-              <Animated.View
-                style={{
-                  transform: [
-                    {
-                      scale:
-                        animations[event._id] || new Animated.Value(1),
-                    },
-                  ],
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                }}
+          {/* Stats Row - Only show for published events */}
+          {!isDraft && (
+            <View style={styles.statsRow}>
+              <TouchableOpacity onPress={handleLike}>
+                <Animated.View
+                  style={{
+                    transform: [
+                      {
+                        scale:
+                          animations[event._id] || new Animated.Value(1),
+                      },
+                    ],
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Ionicons
+                    name={event.hasLiked ? "heart" : "heart-outline"}
+                    size={24}
+                    color={event.hasLiked ? "red" : "#555"}
+                  />
+                  <Text style={styles.likesText}>
+                    {event.likes?.length || 0}
+                  </Text>
+                </Animated.View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={() => setShowComments(true)}
               >
-                <Ionicons
-                  name={event.hasLiked ? "heart" : "heart-outline"}
-                  size={24}
-                  color={event.hasLiked ? "red" : "#555"}
-                />
-                <Text style={styles.likesText}>
-                  {event.likes.length || 0}
+                <Ionicons name="chatbubble-outline" size={20} color="#555" />
+                <Text style={styles.statText}>
+                  {event.comments?.length || 0}
                 </Text>
-              </Animated.View>
-            </TouchableOpacity>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.statItem}
-              onPress={() => setShowComments(true)}
-            >
-              <Ionicons name="chatbubble-outline" size={20} color="#555" />
-              <Text style={styles.statText}>
-                {event.comments.length || 0}
-              </Text>
-            </TouchableOpacity>
+              <View style={styles.statItem}>
+                <Ionicons name="eye-outline" size={20} color="#555" />
+                <Text style={styles.statText}>
+                  {event.hasViewed ? "✓" : ""}
+                </Text>
+              </View>
 
-            <View style={styles.statItem}>
-              <Ionicons name="eye-outline" size={20} color="#555" />
-              <Text style={styles.statText}>
-                {event.hasViewed ? "✓" : ""}
-              </Text>
+              <TouchableOpacity onPress={handleBookmark}>
+                <Ionicons
+                  name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+                  size={20}
+                  color={event.hasBookmarked ? "#5A31F4" : "#555"}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity>
+                <Ionicons name="share-social-outline" size={20} color="#555" />
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity onPress={handleBookmark}>
-              <Ionicons
-                name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
-                size={20}
-                color={event.hasBookmarked ? "#5A31F4" : "#555"}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity>
-              <Ionicons name="share-social-outline" size={20} color="#555" />
-            </TouchableOpacity>
-          </View>
+          )}
         </View>
 
-        {/* Toggle Comments Button */}
-        <TouchableOpacity
-          style={styles.viewCommentsBtn}
-          onPress={() => setShowComments(!showComments)}
-        >
-          <Text style={styles.viewCommentsText}>
-            {showComments ? "Hide Comments" : "View Comments"}
-          </Text>
-          <Ionicons
-            name={showComments ? "chevron-up" : "chevron-down"}
-            size={20}
-            color="#5A31F4"
-          />
-        </TouchableOpacity>
+        {/* Comments Toggle - Only for published events */}
+        {!isDraft && (
+          <TouchableOpacity
+            style={styles.viewCommentsBtn}
+            onPress={() => setShowComments(!showComments)}
+          >
+            <Text style={styles.viewCommentsText}>
+              {showComments ? "Hide Comments" : "View Comments"}
+            </Text>
+            <Ionicons
+              name={showComments ? "chevron-up" : "chevron-down"}
+              size={20}
+              color="#5A31F4"
+            />
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
-      {/* Comments Section as Modal */}
-      <Modal
-        visible={showComments}
-        animationType="slide"
-        onRequestClose={() => setShowComments(false)}
-      >
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Comments</Text>
-          <TouchableOpacity onPress={() => setShowComments(false)}>
-            <Ionicons name="close" size={28} color="#333" />
-          </TouchableOpacity>
-        </View>
-        <CommentsSection eventId={event._id} />
-      </Modal>
+      {/* Comments Modal - Only for published events */}
+      {!isDraft && (
+        <Modal
+          visible={showComments}
+          animationType="slide"
+          onRequestClose={() => setShowComments(false)}
+        >
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Comments</Text>
+            <TouchableOpacity onPress={() => setShowComments(false)}>
+              <Ionicons name="close" size={28} color="#333" />
+            </TouchableOpacity>
+          </View>
+          <CommentsSection eventId={event._id} />
+        </Modal>
+      )}
 
-      {/* Options Menu Modal (for event owner) */}
+      {/* Options Menu Modal */}
       <Modal
         visible={showOptionsMenu}
         transparent={true}
@@ -480,15 +619,32 @@ console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?.
           onPress={() => setShowOptionsMenu(false)}
         >
           <View style={styles.optionsMenu}>
-            <Text style={styles.optionsTitle}>Event Options</Text>
+            <Text style={styles.optionsTitle}>
+              {isDraft ? 'Draft Options' : 'Event Options'}
+            </Text>
             
             <TouchableOpacity
               style={styles.optionItem}
               onPress={handleEditEvent}
             >
               <Ionicons name="create-outline" size={22} color="#5A31F4" />
-              <Text style={styles.optionText}>Edit Event</Text>
+              <Text style={styles.optionText}>
+                {isDraft ? 'Edit Draft' : 'Edit Event'}
+              </Text>
             </TouchableOpacity>
+
+            {/* {isDraft && (
+              <TouchableOpacity
+                style={[styles.optionItem, styles.publishOption]}
+                onPress={handlePublishDraft}
+                disabled={publishing}
+              >
+                <Ionicons name="rocket-outline" size={22} color="#4CAF50" />
+                <Text style={[styles.optionText, styles.publishText]}>
+                  {publishing ? "Publishing..." : "Publish Draft"}
+                </Text>
+              </TouchableOpacity>
+            )} */}
 
             <TouchableOpacity
               style={[styles.optionItem, styles.deleteOption]}
@@ -497,7 +653,7 @@ console.log("Current User ID:", currentUserId, "Event Owner ID:", event.userId?.
             >
               <Ionicons name="trash-outline" size={22} color="#ff4444" />
               <Text style={[styles.optionText, styles.deleteText]}>
-                {deleting ? "Deleting..." : "Delete Event"}
+                {deleting ? "Deleting..." : isDraft ? "Delete Draft" : "Delete Event"}
               </Text>
             </TouchableOpacity>
 
@@ -549,11 +705,35 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontFamily: "Poppins_500Medium",
   },
-  eventImage: {
+  draftBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "#FDECCD",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#FAB843",
+  },
+  draftBadgeText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    color: "#FAB843",
+  },
+  mediaContainer: {
     width: "100%",
     height: height * 0.45,
     borderRadius: 16,
     marginBottom: 15,
+    overflow: 'hidden',
+    backgroundColor: '#f0f0f0',
+  },
+  eventMedia: {
+    width: "100%",
+    height: "100%",
   },
   eventDetails: {},
   title: {
@@ -648,6 +828,9 @@ const styles = StyleSheet.create({
     height: 45,
     justifyContent: "center",
     alignItems: "center",
+  },
+  publishBtn: {
+    backgroundColor: "#4CAF50",
   },
   interestedText: {
     color: "#fff",
@@ -756,6 +939,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: "#f8f8f8",
   },
+  publishOption: {
+    backgroundColor: "#f0f9f4",
+  },
   deleteOption: {
     backgroundColor: "#fff5f5",
   },
@@ -763,6 +949,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Poppins_500Medium",
     color: "#333",
+  },
+  publishText: {
+    color: "#4CAF50",
   },
   deleteText: {
     color: "#ff4444",

@@ -103,12 +103,11 @@ export default function CreateEvent() {
         quality: 0.8,
         selectionLimit: 5,
         videoMaxDuration: 60,
-        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium, // Compress video
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
       });
 
       if (!result.canceled && result.assets) {
         const newMedia = result.assets.map((asset) => {
-          // Determine MIME type from URI if available
           let mimeType = 'application/octet-stream';
           if (asset.type === 'video') {
             mimeType = asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
@@ -125,8 +124,7 @@ export default function CreateEvent() {
           };
         });
 
-        // Check file sizes
-        const oversizedFiles = newMedia.filter(m => m.fileSize && m.fileSize > 50 * 1024 * 1024); // 50MB limit
+        const oversizedFiles = newMedia.filter(m => m.fileSize && m.fileSize > 50 * 1024 * 1024);
         if (oversizedFiles.length > 0) {
           Toast.show({
             type: 'error',
@@ -164,7 +162,6 @@ export default function CreateEvent() {
       console.log('Requesting signed URL with:');
       console.log('  fileName:', fileName);
       console.log('  fileType:', fileType);
-      console.log('  Token:', token ? 'Present' : 'Missing');
      
       const response = await api.put(
         '/auth/sign-s3',
@@ -177,7 +174,7 @@ export default function CreateEvent() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          timeout: 30000, // 30 second timeout
+          timeout: 30000,
         }
       );
 
@@ -185,11 +182,7 @@ export default function CreateEvent() {
       return response.data;
     } catch (error) {
       console.error('Error getting signed URL:', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      console.error('Error config:', error.config?.url);
       
-      // Provide more specific error message
       if (error.response?.data?.message) {
         throw new Error(error.response.data.message);
       } else if (error.response?.status === 400) {
@@ -217,9 +210,8 @@ export default function CreateEvent() {
 
       console.log(`Blob size: ${blob.size} bytes`);
 
-      // Create upload with timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes timeout
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       const uploadResponse = await fetch(uploadURL, {
         method: 'PUT',
@@ -274,7 +266,6 @@ export default function CreateEvent() {
         const mediaUrl = uploadURL.split('?')[0];
         console.log('Upload complete:', mediaUrl);
         
-        // Separate images and videos as simple URL strings
         if (media.type === 'video') {
           uploadedVideos.push(mediaUrl);
         } else {
@@ -283,7 +274,6 @@ export default function CreateEvent() {
       } catch (error) {
         console.error(`Error uploading ${media.type} ${i + 1}:`, error);
         
-        // Show more specific error message
         const errorMessage = error.message || `Failed to upload ${media.type} ${i + 1}`;
         Toast.show({
           type: 'error',
@@ -299,6 +289,78 @@ export default function CreateEvent() {
     return { images: uploadedImages, videos: uploadedVideos };
   };
 
+  const handleSaveToDraft = async () => {
+    const { name, address, categoryId } = form;
+
+    // Minimal validation for draft
+    if (!name.trim()) {
+      return Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Event name is required',
+      });
+    }
+
+    if (!address.trim()) {
+      return Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Event address is required',
+      });
+    }
+
+    if (!categoryId) {
+      return Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Please select an event category',
+      });
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      const token = await AsyncStorage.getItem('token');
+      
+      // Prepare draft data (no media upload required for draft)
+      const draftData = {
+        name: name.trim(),
+        address: address.trim(),
+        categoryId: categoryId,
+      };
+
+      console.log('Saving draft:', draftData);
+
+      const response = await api.post('/event/draft', draftData, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      Toast.show({
+        type: 'success',
+        text1: 'Draft Saved! 📝',
+        text2: 'Your event has been saved as draft',
+      });
+
+      router.back();
+    } catch (error) {
+      console.error('Error saving draft:', error.response || error);
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        'Failed to save draft. Please try again.';
+      Toast.show({
+        type: 'error',
+        text1: 'Save Failed',
+        text2: message,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleCreateEvent = async () => {
     const {
       name,
@@ -312,7 +374,7 @@ export default function CreateEvent() {
       sponsorAmount,
     } = form;
 
-    // Validation
+    // Full validation for published event
     if (!name.trim()) {
       return Toast.show({
         type: 'error',
@@ -404,7 +466,6 @@ export default function CreateEvent() {
         start: startDate.toISOString(),
         ...(endDate && { end: endDate.toISOString() }),
         categoryId: categoryId,
-        // Determine the type based on what media is uploaded
         type: uploadedVideos.length > 0 ? 'videos' : 'images',
         ...(uploadedImages.length > 0 && { images: uploadedImages }),
         ...(uploadedVideos.length > 0 && { videos: uploadedVideos }),
@@ -577,7 +638,7 @@ export default function CreateEvent() {
           {/* Location Coordinates */}
           <View style={styles.row}>
             <View style={styles.halfInputContainer}>
-              <Text style={styles.label}>Latitude (Optional)</Text>
+              <Text style={styles.label}>Latitude *</Text>
               <TextInput
                 style={styles.input}
                 value={form.lat}
@@ -588,7 +649,7 @@ export default function CreateEvent() {
               />
             </View>
             <View style={styles.halfInputContainer}>
-              <Text style={styles.label}>Longitude (Optional)</Text>
+              <Text style={styles.label}>Longitude *</Text>
               <TextInput
                 style={styles.input}
                 value={form.long}
@@ -773,17 +834,32 @@ export default function CreateEvent() {
             )}
           </View>
 
-          {/* Create Button */}
-          <TouchableOpacity
-            style={styles.createButton}
-            onPress={handleCreateEvent}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.createButtonText}>
-              {isSubmitting ? 'Creating...' : 'Create Event'}
-            </Text>
-          </TouchableOpacity>
+          {/* Action Buttons */}
+          <View style={styles.buttonContainer}>
+            {/* Save to Draft Button */}
+            <TouchableOpacity
+              style={styles.draftButton}
+              onPress={handleSaveToDraft}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.draftButtonText}>
+                {isSubmitting ? 'Saving...' : '📝 Save to Draft'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Create Event Button */}
+            <TouchableOpacity
+              style={styles.createButton}
+              onPress={handleCreateEvent}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.createButtonText}>
+                {isSubmitting ? 'Creating...' : 'Create Event'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -981,19 +1057,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  dateButton: {
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fafafa',
-  },
-  dateText: {
-    fontSize: 15,
-    color: '#333',
-    fontFamily: 'Poppins_400Regular',
-  },
   switchContainer: {
     marginBottom: 20,
   },
@@ -1008,28 +1071,6 @@ const styles = StyleSheet.create({
     color: '#444',
     fontFamily: 'Poppins_500Medium',
     flex: 1,
-  },
-  createButton: {
-    backgroundColor: '#5A31F4',
-    borderRadius: 12,
-    paddingVertical: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10,
-    elevation: 4,
-    shadowColor: '#5A31F4',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  createButtonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
-    fontFamily: 'Poppins_600SemiBold',
   },
   dateTimeRow: {
     flexDirection: 'row',
@@ -1047,4 +1088,46 @@ const styles = StyleSheet.create({
     color: '#333',
     fontFamily: 'Poppins_400Regular',
   },
-});
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
+  },
+  draftButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#5A31F4',
+    borderRadius: 12,
+    paddingVertical: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  draftButtonText: {
+    color: '#5A31F4',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  createButton: {
+    flex: 1,
+    backgroundColor: '#5A31F4',
+    borderRadius: 12,
+    paddingVertical: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#5A31F4',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
+    fontFamily: 'Poppins_600SemiBold',
+  },})

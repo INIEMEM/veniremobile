@@ -15,12 +15,16 @@ import api from '../../../utils/axiosInstance';
 const { width, height } = Dimensions.get('window');
 import { useAuth } from '../../../context/AuthContext';
 import ExploreEvents from '../../../components/ExploreEvents';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Toast from 'react-native-toast-message';
+
 export default function Events() {
   const router = useRouter();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('My Events');
   const {user} = useAuth()
+  
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -29,8 +33,6 @@ export default function Events() {
   const tabs = ['My Events', 'Tickets', 'Draft', 'Verification'];
 
   useEffect(() => {
-
-    
     // Animate elements
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -52,11 +54,79 @@ export default function Events() {
     ]).start();
   }, []);
 
- 
+  // Fetch events based on active tab
+  useEffect(() => {
+    fetchEventsByTab();
+  }, [activeTab]);
+
+  const fetchEventsByTab = async () => {
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem('token');
+      
+      let url = '';
+      let config = {
+        headers: { Authorization: `Bearer ${token}` },
+        requiresAuth: true
+      };
+
+      switch (activeTab) {
+        case 'My Events':
+          url = `/event/key?value=${user._id}&key=userId`;
+          break;
+        case 'Draft':
+          url = '/event/draft';
+          break;
+        case 'Tickets':
+          url = '/event/tickets';
+          break;
+        case 'Verification':
+          url = '/event/verification';
+          break;
+        default:
+          url = `/event/key?value=${user._id}&key=userId`;
+      }
+
+      const response = await api.get(url, config);
+
+      if (response.data.success) {
+        const data = response.data.data;
+        const eventsData = Array.isArray(data) ? data : [data];
+        setEvents(eventsData);
+      } else {
+        setEvents([]);
+      }
+
+    } catch (error) {
+      console.error(`Error fetching ${activeTab}:`, error);
+      setEvents([]);
+      
+      // Only show toast if it's not a "no data" scenario
+      if (error.response?.status !== 404) {
+        Toast.show({
+          type: 'error',
+          text1: `Failed to load ${activeTab.toLowerCase()}`,
+          text2: error.response?.data?.message || 'Please try again',
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCreateEvent = () => {
-    // Navigate to create event screen
     router.push('/events/create');
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    // Reset fade animation when switching tabs
+    fadeAnim.setValue(0);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
   };
 
   return (
@@ -72,7 +142,7 @@ export default function Events() {
             <TouchableOpacity
               key={tab}
               style={styles.tab}
-              onPress={() => setActiveTab(tab)}
+              onPress={() => handleTabChange(tab)}
               activeOpacity={0.7}
             >
               <Text
@@ -113,13 +183,23 @@ export default function Events() {
 
             {/* Empty State Text */}
             <Text style={styles.emptyText}>
-              You have no event records yet. Any event you host
+              {activeTab === 'Draft' 
+                ? 'You have no draft events yet.'
+                : activeTab === 'Tickets'
+                ? 'You have no tickets yet.'
+                : activeTab === 'Verification'
+                ? 'No events pending verification.'
+                : 'You have no event records yet. Any event you host'}
             </Text>
             <Text style={styles.emptyText}>
-              will be recorded here.{' '}
-              <Text style={styles.createLink} onPress={handleCreateEvent}>
-                Create event?
-              </Text>
+              {activeTab === 'My Events' && (
+                <>
+                  will be recorded here.{' '}
+                  <Text style={styles.createLink} onPress={handleCreateEvent}>
+                    Create event?
+                  </Text>
+                </>
+              )}
             </Text>
           </Animated.View>
         ) : (
@@ -127,8 +207,12 @@ export default function Events() {
             contentContainerStyle={styles.eventsListContainer}
             showsVerticalScrollIndicator={false}
           >
-            {/* Event cards would go here when there are events */}
-            <ExploreEvents userId={user._id}/>
+            <ExploreEvents 
+              userId={activeTab === 'My Events' ? user._id : null}
+              events={events}
+              isExploreMode={false}
+              isDraftMode={activeTab === 'Draft'} // Pass isDraftMode prop
+            />
           </ScrollView>
         )}
       </View>

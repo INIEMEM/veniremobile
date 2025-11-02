@@ -166,6 +166,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       if (response.data.success) {
         setSearchResults(response.data.data);
       }
+      console.log("Search Results:", response.data.data);
     } catch (error) {
       console.error("Error searching events:", error);
       Toast.show({
@@ -194,6 +195,23 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       minute: "2-digit",
       hour12: true,
     });
+  };
+
+  // Helper function to get event media (video or image)
+  const getEventMedia = (event) => {
+    // Check if event has videos first
+    if (event.videos && event.videos.length > 0) {
+      return { type: 'video', src: event.videos[0] };
+    }
+    // Fall back to images
+    if (event.images && event.images.length > 0) {
+      return { type: 'image', src: event.images[0] };
+    }
+    // Default placeholder image
+    return { 
+      type: 'image', 
+      src: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800" 
+    };
   };
 
   // Create randomized sections
@@ -349,27 +367,27 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
                 contentContainerStyle={styles.scrollContent}
               >
                 {section.events.map((event) => {
-                  const eventImage = event.images && event.images.length > 0
-                    ? event.images[0]
-                    : "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800";
+                  const media = getEventMedia(event);
 
                   return (
                     <LiveEventCard
                       key={event._id}
-                      imgSrc={eventImage}
+                      imgSrc={media.type === 'image' ? media.src : undefined}
+                      videoSrc={media.type === 'video' ? media.src : undefined}
                       title={event.name}
                       caption={event.description}
                       date={formatDate(event.start)}
                       time={formatTime(event.start)}
                       location={event.address}
                       price={event.isTicket ? `₦${event.ticketAmount}` : "Free"}
+                      eventId={event._id}
                     />
                   );
                 })}
               </ScrollView>
             ) : (
               <ExploreEvents 
-                events={section.events} 
+                events={allEvents} 
                 isExploreMode={isExploreMode} 
               />
             )}
