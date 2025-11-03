@@ -36,6 +36,8 @@ export default function EditEvent() {
   const [existingImages, setExistingImages] = useState([]);
   const [existingVideos, setExistingVideos] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
+  
+
   const toast = useToast();
   const [form, setForm] = useState({
     name: '',
@@ -615,6 +617,7 @@ export default function EditEvent() {
                 numberOfLines={4}
                 textAlignVertical="top"
               />
+              
             </View>
 
             {/* Address */}
@@ -851,6 +854,7 @@ export default function EditEvent() {
             </TouchableOpacity>
           </Animated.View>
         </ScrollView>
+       
       </KeyboardAvoidingView>
     </TouchableWithoutFeedback>
   );

@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from "react";
+import React, { useContext, useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   Platform,
+  KeyboardAvoidingView,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import api from "../utils/axiosInstance";
@@ -17,11 +18,21 @@ import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import useCustomDatePicker from "../utils/useCustomDatePicker";
+import CustomKeyboardInput from "../components/CustomKeyboardInput";
 export default function EditProfile() {
   const { open, PickerModal, selectedDate, formatDate } = useCustomDatePicker();
   const { user, setUser } = useAuth();
   const router = useRouter();
   const [showPicker, setShowPicker] = useState(false);
+  const [composerVisible, setComposerVisible] = useState(false);
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    if (composerVisible && scrollRef.current) {
+      setTimeout(() => {
+        scrollRef.current.scrollToEnd({ animated: true });
+      }, 200);
+    }
+  }, [composerVisible]);
   const [form, setForm] = useState({
     firstname: "",
     lastname: "",
@@ -90,8 +101,14 @@ export default function EditProfile() {
   };
 
   return (
+    <KeyboardAvoidingView 
+    style={{flex:1, backgroundColor: '#fff'}}
+    behavior={Platform.OS === "ios"? "padding" : 'height'}
+    keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+  >
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20, gap:20 }}>
+     
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20, gap:20 }}>
       <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#444" />
         </TouchableOpacity>
@@ -143,39 +160,7 @@ export default function EditProfile() {
           onChangeText={(text) => handleChange("dob", text)}
           placeholder="(YYYY-MM-DD)"
         />
-        {/* <TouchableOpacity style={styles.input} onPress={open}>
-          <Text style={{ color: form.dob ? "#333" : "#aaa" }}>
-            {form.dob
-              ? formatDate(form.dob)
-              : "Select your date of birth"}
-          </Text>
-        </TouchableOpacity> */}
-
-          {/* Custom Picker Modal */}
-          {/* <PickerModal onSelect={handleDateSelect} /> */}
-            {/* <TouchableOpacity
-              style={styles.input}
-              onPress={() => setShowPicker(true)}
-            >
-              <Text style={{ color: form.dob ? "#333" : "#aaa" }}>
-                {form.dob
-                  ? new Date(form.dob).toDateString()
-                  : "Select your date of birth"}
-              </Text>
-            </TouchableOpacity> */}
-
-            {/* {showPicker && (
-              <DateTimePicker
-                value={form.dob ? new Date(form.dob) : new Date()}
-                mode="date"
-                display="default"
-                maximumDate={new Date()}
-                onChange={(event, selectedDate) => {
-                  setShowPicker(false);
-                  if (selectedDate) handleChange("dob", selectedDate);
-                }}
-              />
-            )} */}
+       
        </View>
       <View style={styles.formGroup}>
         <Text style={styles.label}>Country</Text>
@@ -218,6 +203,22 @@ export default function EditProfile() {
           onChangeText={(text) => handleChange("about", text)}
           placeholder="Tell us something about yourself"
         />
+        {/* <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() => {
+                  setComposerVisible(true);
+                  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+                }}
+                style={[styles.touchableInput, styles.touchableTextArea]}
+              >
+                {form.about ? (
+                  <Text style={styles.touchableInputText}>{form.about}</Text>
+                ) : (
+                  <Text style={[styles.touchableInputText, styles.placeholderText]}>
+                    Tell people about your event...
+                  </Text>
+                )}
+              </TouchableOpacity> */}
       </View>
 
       <TouchableOpacity
@@ -231,7 +232,11 @@ export default function EditProfile() {
           <Text style={styles.buttonText}>Save Changes</Text>
         )}
       </TouchableOpacity>
+    
+      
+      
     </ScrollView>
+      </KeyboardAvoidingView>
   );
 }
 

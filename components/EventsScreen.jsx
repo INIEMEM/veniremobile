@@ -120,26 +120,28 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
   };
 
   const categorizeEvents = (events) => {
-    const now = new Date();
     const ongoing = [];
-    const future = [];
-
+    const pending = [];
+    const completed = [];
+  
     events.forEach(event => {
-      const startDate = new Date(event.start);
-      const endDate = event.end ? new Date(event.end) : null;
-
-      // Check if event is ongoing
-      if (startDate <= now && (!endDate || endDate >= now)) {
+      // Use userStatus to categorize events
+      if (event.userStatus === "ongoing") {
         ongoing.push(event);
-      } 
-      // Future events
-      else if (startDate > now) {
-        future.push(event);
+      } else if (event.userStatus === "pending") {
+        pending.push(event);
+      } else if (event.userStatus === "completed") {
+        completed.push(event);
       }
+      // Note: draft and cancelled events are excluded from the feed
     });
-    console.log("on Events:", ongoing);
+  
+    console.log("Ongoing Events:", ongoing);
+    console.log("Pending Events:", pending);
+    console.log("Completed Events:", completed);
+    
     setOngoingEvents(ongoing);
-    setFutureEvents(future);
+    setFutureEvents(pending);
     setAllEvents(events);
   };
 
@@ -220,42 +222,47 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
     let allEventsIndex = 0;
     let ongoingIndex = 0;
     let futureIndex = 0;
-
-    // Randomize section order
+  
     const sectionTypes = ['all', 'ongoing', 'future'];
     const randomizedTypes = [...sectionTypes].sort(() => Math.random() - 0.5);
-
+  
     randomizedTypes.forEach((type, index) => {
       if (type === 'ongoing' && ongoingEvents.length > 0) {
+        const sectionEvents = ongoingEvents.slice(ongoingIndex, ongoingIndex + 3);
         sections.push({
           id: `ongoing-${index}`,
           type: 'ongoing',
+          status: 'ongoing',
           title: 'Happening Now',
-          events: ongoingEvents.slice(ongoingIndex, ongoingIndex + 3),
+          events: sectionEvents,
           scrollDirection: 'horizontal'
         });
         ongoingIndex += 3;
       } else if (type === 'future' && futureEvents.length > 0) {
+        const sectionEvents = futureEvents.slice(futureIndex, futureIndex + 3);
         sections.push({
           id: `future-${index}`,
           type: 'future',
+          status: 'pending',
           title: 'Upcoming Events',
-          events: futureEvents.slice(futureIndex, futureIndex + 3),
+          events: sectionEvents,
           scrollDirection: 'horizontal'
         });
         futureIndex += 3;
       } else if (type === 'all' && allEvents.length > 0) {
+        const sectionEvents = allEvents.slice(allEventsIndex, allEventsIndex + 4);
         sections.push({
           id: `all-${index}`,
           type: 'all',
+          status: null,
           title: 'Explore Events',
-          events: allEvents.slice(allEventsIndex, allEventsIndex + 4),
+          events: sectionEvents,
           scrollDirection: 'vertical'
         });
         allEventsIndex += 4;
       }
     });
-
+  
     return sections;
   };
 
@@ -348,11 +355,10 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
               <Text style={[styles.title, styles.sectionSpacing]}>
                 {section.title}
               </Text>
-              {section.scrollDirection === 'horizontal' && (
+              {section.scrollDirection === 'horizontal' && section.status && (
                 <TouchableOpacity
                   onPress={() => {
-                    // Navigate to full section view
-                    console.log(`View all ${section.type} events`);
+                    router.push(`/events/all/${section.status}`);
                   }}
                 >
                   <Text style={styles.viewAllText}>View All</Text>

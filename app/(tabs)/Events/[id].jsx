@@ -360,6 +360,7 @@ export default function EventDetailsScreen() {
     };
   };
 
+  console.log("Event Data:", event);
   if (loading) {
     return (
       <View style={styles.centerContainer}>

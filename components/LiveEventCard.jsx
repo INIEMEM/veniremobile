@@ -91,10 +91,11 @@ const styles = StyleSheet.create({
     padding: 5,
     marginBottom: 15,
     width: 290,
+    overflow: 'hidden',
   },
   mediaContainer: {
     width: 283,
-    height: 131,
+    height: 151,
     borderRadius: 9,
     overflow: 'hidden',
     backgroundColor: '#e0e0e0',

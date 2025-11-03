@@ -19,7 +19,8 @@ import Toast from "react-native-toast-message";
 import api from "../../utils/axiosInstance";
 import ExploreEvents from "../../components/ExploreEvents";
 import { useAuth } from "../../context/AuthContext";
-
+// import CustomKeyboardInput from '../../../components/CustomKeyboardInput';
+import CustomKeyboardInput from "../../components/CustomKeyboardInput";
 const { width } = Dimensions.get("window");
 
 export default function ProfilePage() {

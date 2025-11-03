@@ -781,5 +781,8 @@ const styles = StyleSheet.create({
     height: 35,
     borderRadius: 50,
     backgroundColor: "#ddd",
+    borderWidth: 1.5,
+    borderColor: "#5A31F4",
+
   },
 });
