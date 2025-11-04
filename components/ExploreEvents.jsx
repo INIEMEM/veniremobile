@@ -132,10 +132,10 @@ export default function ExploreEvents({
       
       if (isExploreMode || isGuest === "true") {
         url = "/event/explore";
-        console.log("Fetching explore events (guest mode)");
+        // console.log("Fetching explore events (guest mode)");
       } else if (userId) {
         url = `/event/key?value=${userId}&key=userId`;
-        console.log("Fetching user specific events");
+        // console.log("Fetching user specific events");
         config = {
           headers: { Authorization: `Bearer ${token}` },
           requiresAuth: true
@@ -565,7 +565,7 @@ export default function ExploreEvents({
                 <TouchableOpacity
                   style={styles.statItem}
                   onPress={() => {
-                    console.log("Navigating to comments for event:", event._id);
+                    // console.log("Navigating to comments for event:", event._id);
                     router.push(`/(tabs)/Events/${event._id}?tab=comments`)
                   }}
                 >

@@ -34,7 +34,7 @@ export default function ProfilePage() {
   const [interestedEvents, setInterestedEvents] = useState([]);
   const [bookmarkedEvents, setBookmarkedEvents] = useState([]);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const { user: authUser, logout } = useAuth();
+  const { user: authUser, logout, updateUser } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   
   const isMyProfile = loggedInUser?._id === id;
@@ -92,6 +92,8 @@ export default function ProfilePage() {
         });
         
         setUserProfile(response.data.data);
+
+        console.log("Fetched profile data:", response.data.data);
         
         await fetchFilteredEvents();
       } catch (error) {
@@ -240,6 +242,12 @@ export default function ProfilePage() {
               avatar: imageUrl,
               profile_picture: imageUrl,
             }));
+            const updatedProfile = {
+              ...userProfile,
+              avatar: imageUrl,
+              profile_picture: imageUrl,
+            };
+            await AsyncStorage.setItem("user", JSON.stringify(updatedProfile));
           }
         } catch (uploadError) {
           console.error("Upload error:", uploadError);
@@ -395,8 +403,8 @@ export default function ProfilePage() {
           <View style={styles.tabContainer}>
             {[
               { key: "events", label: "My Events" },
-              { key: "interest", label: "Interest" },
-              { key: "bookmarks", label: "Bookmarks" },
+              { key: "interest", label: "Interested" },
+              { key: "bookmarks", label: "Bookmarked" },
               { key: "wallet", label: "Wallet" },
             ].map((tab) => (
               <TouchableOpacity

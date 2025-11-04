@@ -23,6 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
 import CustomKeyboardInput from '../../components/CustomKeyboardInput';
+import { useToast } from '../../context/ToastContext';
 const { width, height } = Dimensions.get('window');
 
 
@@ -34,6 +35,7 @@ export default function CreateEvent() {
   const [selectedMedia, setSelectedMedia] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
   const [composerVisible, setComposerVisible] = useState(false);
+  const { toast } = useToast();
   const scrollRef = useRef(null); 
   useEffect(() => {
     if (composerVisible && scrollRef.current) {
@@ -57,6 +59,8 @@ export default function CreateEvent() {
     start: '',
     end: '',
     categoryId: '',
+    isOrganizer: false,
+    isHost: false,
   });
 
   // Animations
@@ -84,11 +88,12 @@ export default function CreateEvent() {
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Toast.show({
-        type: 'error',
-        text1: 'Permission Required',
-        text2: 'Please grant media library permissions to upload files',
-      });
+      // Toast.show({
+      //   type: 'error',
+      //   text1: 'Permission Required',
+      //   text2: 'Please grant media library permissions to upload files',
+      // });
+      toast.error('Please grant media library permissions to upload files');
     }
   };
 
@@ -137,11 +142,12 @@ export default function CreateEvent() {
 
         const oversizedFiles = newMedia.filter(m => m.fileSize && m.fileSize > 50 * 1024 * 1024);
         if (oversizedFiles.length > 0) {
-          Toast.show({
-            type: 'error',
-            text1: 'File Too Large',
-            text2: 'Please select videos smaller than 50MB',
-          });
+          // Toast.show({
+          //   type: 'error',
+          //   text1: 'File Too Large',
+          //   text2: 'Please select videos smaller than 50MB',
+          // });
+          toast.error('Please select videos smaller than 50MB');
           return;
         }
 
@@ -149,11 +155,12 @@ export default function CreateEvent() {
       }
     } catch (error) {
       console.error('Error picking media:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Failed to pick media',
-      });
+      // Toast.show({
+      //   type: 'error',
+      //   text1: 'Error',
+      //   text2: 'Failed to pick media',
+      // });
+      toast.error('Failed to pick media');
     }
   };
 
@@ -349,24 +356,26 @@ export default function CreateEvent() {
         },
       });
 
-      Toast.show({
-        type: 'success',
-        text1: 'Draft Saved! 📝',
-        text2: 'Your event has been saved as draft',
-      });
+      // Toast.show({
+      //   type: 'success',
+      //   text1: 'Draft Saved! 📝',
+      //   text2: 'Your event has been saved as draft',
+      // });
+      toast.success('Your event has been saved as draft');
 
       router.back();
     } catch (error) {
       console.error('Error saving draft:', error.response || error);
       const message =
-        error.response?.data?.message ||
+        error.response?.data?.error ||
         error.message ||
         'Failed to save draft. Please try again.';
-      Toast.show({
-        type: 'error',
-        text1: 'Save Failed',
-        text2: message,
-      });
+      // Toast.show({
+      //   type: 'error',
+      //   text1: 'Save Failed',
+      //   text2: message,
+      // });
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -410,13 +419,13 @@ export default function CreateEvent() {
       });
     }
 
-    if (!capacity || parseInt(capacity) <= 0) {
-      return Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'Please enter a valid capacity',
-      });
-    }
+    // if (!capacity || parseInt(capacity) <= 0) {
+    //   return Toast.show({
+    //     type: 'error',
+    //     text1: 'Validation Error',
+    //     text2: 'Please enter a valid capacity',
+    //   });
+    // }
 
     if (!categoryId) {
       return Toast.show({
@@ -446,7 +455,7 @@ export default function CreateEvent() {
       setUploadProgress('Creating event...');
       const token = await AsyncStorage.getItem('token');
       const startDate = new Date(
-        `${form.startYear}-${form.startMonth}-${form.startDay}T00:00:00.000Z`
+        `${form.startYear}-${form.startMonth?.padStart(2, '0')}-${form.startDay?.padStart(2, '0')}T${form.startHour?.padStart(2, '0') || '00'}:${form.startMinute?.padStart(2, '0') || '00'}:00.000Z`
       );
       let endDate = null;
       if (form.endYear && form.endMonth && form.endDay) {
@@ -469,7 +478,7 @@ export default function CreateEvent() {
         address: address.trim(),
         lat: form.lat || '0',
         long: form.long || '0',
-        capacity: capacity,
+        ...(capacity && {capacity: capacity}),
         isTicket: isTicket,
         ticketAmount: isTicket ? parseFloat(ticketAmount) || 0 : 0,
         isSponsored: isSponsored,
@@ -480,8 +489,11 @@ export default function CreateEvent() {
         type: uploadedVideos.length > 0 ? 'videos' : 'images',
         ...(uploadedImages.length > 0 && { images: uploadedImages }),
         ...(uploadedVideos.length > 0 && { videos: uploadedVideos }),
+        isOrganizer: form.isOrganizer,
+        isHost: form.isHost,
       };
 
+      console.log('Creating event with data:', eventData);
       const response = await api.post('/event', eventData, {
         headers: {
           'Content-Type': 'application/json',
@@ -489,11 +501,12 @@ export default function CreateEvent() {
         },
       });
 
-      Toast.show({
-        type: 'success',
-        text1: 'Success! 🎉',
-        text2: 'Event created successfully',
-      });
+      // Toast.show({
+      //   type: 'success',
+      //   text1: 'Success! 🎉',
+      //   text2: 'Event created successfully',
+      // });
+      // toast.success('Event created successfully');
 
       router.back();
     } catch (error) {
@@ -507,6 +520,7 @@ export default function CreateEvent() {
         text1: 'Creation Failed',
         text2: message,
       });
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
       setUploadProgress('');
@@ -522,6 +536,7 @@ export default function CreateEvent() {
       {isSubmitting && <CustomLoader />}
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -681,7 +696,7 @@ export default function CreateEvent() {
 
           {/* Capacity */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>How many people are attending this event? *</Text>
+            <Text style={styles.label}>How many people are attending this event? </Text>
             <TextInput
               style={styles.input}
               value={form.capacity}
@@ -766,7 +781,7 @@ export default function CreateEvent() {
 
           {/* End Date & Time */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>End Date & Time *</Text>
+            <Text style={styles.label}>End Date & Time </Text>
             <View style={styles.dateTimeRow}>
               <TextInput
                 style={[styles.dateTimeInput, { flex: 1 }]}
@@ -850,6 +865,32 @@ export default function CreateEvent() {
                 keyboardType="decimal-pad"
               />
             )}
+          </View>
+
+          {/* Organizer */}
+          <View style={styles.switchContainer}>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Are you the organizer?</Text>
+              <Switch
+                value={form.isOrganizer}
+                onValueChange={(value) => handleChange('isOrganizer', value)}
+                trackColor={{ false: '#ccc', true: '#5A31F4' }}
+                thumbColor="#fff"
+              />
+            </View>
+          </View>
+
+          {/* Host */}
+          <View style={styles.switchContainer}>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Are you the host?</Text>
+              <Switch
+                value={form.isHost}
+                onValueChange={(value) => handleChange('isHost', value)}
+                trackColor={{ false: '#ccc', true: '#5A31F4' }}
+                thumbColor="#fff"
+              />
+            </View>
           </View>
 
           {/* Action Buttons */}
@@ -993,65 +1034,6 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     color: '#999',
-  },
-  // Custom keyboard styles
-  customKeyboardContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  floatingLabel: {
-    fontSize: 12,
-    color: '#5A31F4',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  customInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    backgroundColor: '#f0f0f0',
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    minHeight: 40,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  customInputFocused: {
-    borderColor: '#5A31F4',
-    backgroundColor: '#fafafa',
-  },
-  customInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#333',
-    maxHeight: 150,
-    paddingTop: Platform.OS === 'ios' ? 8 : 0,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 0,
-  },
-  doneButton: {
-    backgroundColor: '#5A31F4',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginLeft: 8,
-  },
-  doneButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
   },
   imagePickerButton: {
     borderWidth: 2,
@@ -1240,4 +1222,5 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     fontFamily: 'Poppins_600SemiBold',
-  },})
+  },
+});

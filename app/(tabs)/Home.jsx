@@ -147,7 +147,7 @@ export default function Home() {
     await AsyncStorage.removeItem("isGuest");
     router.push("/auth/login");
   };
-
+  console.log('the profile image', user?.profile_picture)
   return (
     <View style={styles.container}>
       {/* ===== HEADER SECTION ===== */}
@@ -172,7 +172,7 @@ export default function Home() {
             <Image
               source={
                 user?.profile_picture
-                  ? { uri: user.profile_picture }
+                  ? { uri: user?.profile_picture }
                   : require("../../assets/default-avatar.jpg")
               }
               style={styles.avatar}

@@ -136,9 +136,9 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       // Note: draft and cancelled events are excluded from the feed
     });
   
-    console.log("Ongoing Events:", ongoing);
-    console.log("Pending Events:", pending);
-    console.log("Completed Events:", completed);
+    // console.log("Ongoing Events:", ongoing);
+    // console.log("Pending Events:", pending);
+    // console.log("Completed Events:", completed);
     
     setOngoingEvents(ongoing);
     setFutureEvents(pending);
@@ -168,7 +168,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       if (response.data.success) {
         setSearchResults(response.data.data);
       }
-      console.log("Search Results:", response.data.data);
+      // console.log("Search Results:", response.data.data);
     } catch (error) {
       console.error("Error searching events:", error);
       Toast.show({

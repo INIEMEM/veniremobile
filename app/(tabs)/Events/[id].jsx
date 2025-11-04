@@ -24,6 +24,14 @@ import CommentsSection from "../../../components/CommentsSection";
 import api from "../../../utils/axiosInstance";
 const { width, height } = Dimensions.get("window");
 
+const EVENT_STATUSES = [
+  { value: "pending", label: "Pending", color: "#FAB843", icon: "time-outline" },
+  { value: "ongoing", label: "Ongoing", color: "#4CAF50", icon: "play-circle-outline" },
+  { value: "completed", label: "Completed", color: "#2196F3", icon: "checkmark-circle-outline" },
+  { value: "draft", label: "Draft", color: "#9E9E9E", icon: "document-text-outline" },
+  { value: "cancelled", label: "Cancelled", color: "#ff4444", icon: "close-circle-outline" },
+];
+
 export default function EventDetailsScreen() {
   const { id, isDraft } = useLocalSearchParams();
   const router = useRouter();
@@ -35,8 +43,9 @@ export default function EventDetailsScreen() {
   const [showComments, setShowComments] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [publishing, setPublishing] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -221,6 +230,61 @@ export default function EventDetailsScreen() {
     }
   };
 
+  const handleChangeStatus = (newStatus) => {
+    const statusLabel = EVENT_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+    Alert.alert(
+      "Change Event Status",
+      `Are you sure you want to change this event's status to "${statusLabel}"?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Change",
+          onPress: () => confirmStatusChange(newStatus),
+        },
+      ]
+    );
+  };
+
+  const confirmStatusChange = async (newStatus) => {
+    try {
+      setChangingStatus(true);
+      const token = await AsyncStorage.getItem("token");
+
+      await api.put(
+        `/event/user/${event._id}`,
+        { userStatus: newStatus },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Update local state
+      setEvent((prev) => ({
+        ...prev,
+        userStatus: newStatus,
+      }));
+
+      const statusLabel = EVENT_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+      Toast.show({
+        type: "success",
+        text1: "Status updated",
+        text2: `Event status changed to ${statusLabel}`,
+      });
+
+      setShowStatusMenu(false);
+    } catch (error) {
+      console.error("Error changing status:", error);
+      Toast.show({
+        type: "error",
+        text1: "Status change failed",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    } finally {
+      setChangingStatus(false);
+    }
+  };
+
   const handleDeleteEvent = () => {
     Alert.alert(
       isDraft ? "Delete Draft" : "Delete Event",
@@ -281,54 +345,6 @@ export default function EventDetailsScreen() {
     }
   };
 
-  const handlePublishDraft = async () => {
-    Alert.alert(
-      "Publish Draft",
-      "Are you sure you want to publish this draft event?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Publish",
-          onPress: confirmPublish,
-        },
-      ]
-    );
-  };
-
-  const confirmPublish = async () => {
-    try {
-      setPublishing(true);
-      const token = await AsyncStorage.getItem("token");
-
-      await api.post(
-        `/event/draft/publish/${event._id}`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      Toast.show({
-        type: "success",
-        text1: "Draft published successfully",
-      });
-
-      // Navigate back and refresh
-      router.back();
-    } catch (error) {
-      console.error("Error publishing draft:", error);
-      Toast.show({
-        type: "error",
-        text1: "Publish failed",
-        text2: error.response?.data?.message || "Please try again",
-      });
-    } finally {
-      setPublishing(false);
-      setShowOptionsMenu(false);
-    }
-  };
-
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
@@ -360,7 +376,11 @@ export default function EventDetailsScreen() {
     };
   };
 
-  console.log("Event Data:", event);
+  const getCurrentStatusInfo = () => {
+    const currentStatus = event?.userStatus || 'draft';
+    return EVENT_STATUSES.find(s => s.value === currentStatus) || EVENT_STATUSES[3];
+  };
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -390,6 +410,7 @@ export default function EventDetailsScreen() {
   }
 
   const media = getEventMedia(event);
+  const statusInfo = getCurrentStatusInfo();
 
   const organizerImage =
     event.userId?.profile_picture ||
@@ -407,13 +428,13 @@ export default function EventDetailsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Draft Badge */}
-        {isDraft && (
-          <View style={styles.draftBadge}>
-            <Ionicons name="document-text-outline" size={16} color="#FAB843" />
-            <Text style={styles.draftBadgeText}>DRAFT</Text>
-          </View>
-        )}
+        {/* Status Badge */}
+        <View style={[styles.statusBadge, { backgroundColor: `${statusInfo.color}20`, borderColor: statusInfo.color }]}>
+          <Ionicons name={statusInfo.icon} size={16} color={statusInfo.color} />
+          <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
+            {statusInfo.label.toUpperCase()}
+          </Text>
+        </View>
 
         <Text style={styles.title}>
           {isDraft ? 'Draft Details' : 'Event Details'}
@@ -428,7 +449,7 @@ export default function EventDetailsScreen() {
                 {event.userId?.firstname || "Unknown"}{" "}
                 {event.userId?.lastname || ""}
               </Text>
-              <Text style={styles.time}>{event.userId?.email || "Organizer"}</Text>
+              <Text style={styles.time}>{event?.isOrganizer && 'Organizer'} | {event?.isHost && 'Host'} {!event?.isOrganizer && !event?.isHost && 'Publisher'}</Text>
             </View>
           </View>
           <View>
@@ -496,17 +517,6 @@ export default function EventDetailsScreen() {
                 <Text style={styles.interestedText}>Interested</Text>
               </TouchableOpacity>
             )}
-            {/* {isDraft && (
-              <TouchableOpacity
-                style={[styles.interestedBtn, styles.publishBtn]}
-                onPress={handlePublishDraft}
-                disabled={publishing}
-              >
-                <Text style={styles.interestedText}>
-                  {publishing ? "Publishing..." : "Publish Draft"}
-                </Text>
-              </TouchableOpacity>
-            )} */}
             <Text style={styles.price}>
               {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
             </Text>
@@ -634,18 +644,20 @@ export default function EventDetailsScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* {isDraft && (
+            {isOwner && (
               <TouchableOpacity
-                style={[styles.optionItem, styles.publishOption]}
-                onPress={handlePublishDraft}
-                disabled={publishing}
+                style={[styles.optionItem, styles.statusOption]}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  setShowStatusMenu(true);
+                }}
               >
-                <Ionicons name="rocket-outline" size={22} color="#4CAF50" />
-                <Text style={[styles.optionText, styles.publishText]}>
-                  {publishing ? "Publishing..." : "Publish Draft"}
+                <Ionicons name="swap-horizontal-outline" size={22} color="#FF9800" />
+                <Text style={[styles.optionText, styles.statusText]}>
+                  Change Status
                 </Text>
               </TouchableOpacity>
-            )} */}
+            )}
 
             <TouchableOpacity
               style={[styles.optionItem, styles.deleteOption]}
@@ -661,6 +673,67 @@ export default function EventDetailsScreen() {
             <TouchableOpacity
               style={styles.cancelOption}
               onPress={() => setShowOptionsMenu(false)}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Status Change Modal */}
+      <Modal
+        visible={showStatusMenu}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowStatusMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowStatusMenu(false)}
+        >
+          <View style={styles.statusMenu}>
+            <View style={styles.statusMenuHeader}>
+              <Text style={styles.statusMenuTitle}>Change Event Status</Text>
+              <Text style={styles.statusMenuSubtitle}>
+                Current: {statusInfo.label}
+              </Text>
+            </View>
+
+            <ScrollView style={styles.statusList}>
+              {EVENT_STATUSES.map((status) => (
+                <TouchableOpacity
+                  key={status.value}
+                  style={[
+                    styles.statusItem,
+                    event.userStatus === status.value && styles.statusItemActive,
+                  ]}
+                  onPress={() => handleChangeStatus(status.value)}
+                  disabled={changingStatus || event.userStatus === status.value}
+                >
+                  <View style={styles.statusItemLeft}>
+                    <Ionicons name={status.icon} size={24} color={status.color} />
+                    <View>
+                      <Text style={styles.statusItemLabel}>{status.label}</Text>
+                      <Text style={styles.statusItemDescription}>
+                        {status.value === 'pending' && 'Event is scheduled but not started'}
+                        {status.value === 'ongoing' && 'Event is currently happening'}
+                        {status.value === 'completed' && 'Event has finished'}
+                        {status.value === 'draft' && 'Event is not yet published'}
+                        {status.value === 'cancelled' && 'Event has been cancelled'}
+                      </Text>
+                    </View>
+                  </View>
+                  {event.userStatus === status.value && (
+                    <Ionicons name="checkmark-circle" size={24} color={status.color} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.cancelOption}
+              onPress={() => setShowStatusMenu(false)}
             >
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -706,23 +779,20 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontFamily: "Poppins_500Medium",
   },
-  draftBadge: {
+  statusBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     alignSelf: "flex-start",
-    backgroundColor: "#FDECCD",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: "#FAB843",
   },
-  draftBadgeText: {
+  statusBadgeText: {
     fontFamily: "Poppins_600SemiBold",
     fontSize: 12,
-    color: "#FAB843",
   },
   mediaContainer: {
     width: "100%",
@@ -829,9 +899,6 @@ const styles = StyleSheet.create({
     height: 45,
     justifyContent: "center",
     alignItems: "center",
-  },
-  publishBtn: {
-    backgroundColor: "#4CAF50",
   },
   interestedText: {
     color: "#fff",
@@ -940,8 +1007,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: "#f8f8f8",
   },
-  publishOption: {
-    backgroundColor: "#f0f9f4",
+  statusOption: {
+    backgroundColor: "#fff3e0",
   },
   deleteOption: {
     backgroundColor: "#fff5f5",
@@ -951,8 +1018,8 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_500Medium",
     color: "#333",
   },
-  publishText: {
-    color: "#4CAF50",
+  statusText: {
+    color: "#FF9800",
   },
   deleteText: {
     color: "#ff4444",
@@ -966,5 +1033,67 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Poppins_500Medium",
     color: "#666",
+  },
+  statusMenu: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+    maxHeight: height * 0.7,
+  },
+  statusMenuHeader: {
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  statusMenuTitle: {
+    fontSize: 18,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#333",
+    marginBottom: 4,
+  },
+  statusMenuSubtitle: {
+    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+    color: "#666",
+  },
+  statusList: {
+    maxHeight: height * 0.45,
+  },
+  statusItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 10,
+    backgroundColor: "#f8f8f8",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  statusItemActive: {
+    backgroundColor: "#f0f0ff",
+    borderColor: "#5A31F4",
+  },
+  statusItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  statusItemLabel: {
+    fontSize: 16,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#333",
+  },
+  statusItemDescription: {
+    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    color: "#666",
+    marginTop: 2,
   },
 });

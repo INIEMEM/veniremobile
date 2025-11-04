@@ -21,7 +21,7 @@ import useCustomDatePicker from "../utils/useCustomDatePicker";
 import CustomKeyboardInput from "../components/CustomKeyboardInput";
 export default function EditProfile() {
   const { open, PickerModal, selectedDate, formatDate } = useCustomDatePicker();
-  const { user, setUser } = useAuth();
+  const { user, setUser, updateUser } = useAuth();
   const router = useRouter();
   const [showPicker, setShowPicker] = useState(false);
   const [composerVisible, setComposerVisible] = useState(false);
@@ -82,8 +82,8 @@ export default function EditProfile() {
         Alert.alert("✅ Success", "Profile updated successfully!");
 
         // Update global user state
-        setUser(response.data.data);
-
+        // setUser(response.data.data);
+        await updateUser(response.data.data);
         // Navigate back
         router.back();
       } else {
