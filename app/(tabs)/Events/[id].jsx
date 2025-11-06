@@ -506,6 +506,13 @@ export default function EventDetailsScreen() {
             </Text>
           </View>
 
+          <Text> {event.end &&  'End Date:'} </Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.dateTime}>
+              {event?.end && formatDate(event?.end)} • {event.end && formatTime(event?.end)}
+            </Text>
+          </View>
+
           <View style={[styles.infoRow2]}>
             <View style={styles.mapBox}>
               <Text style={styles.mapText}>Map</Text>
