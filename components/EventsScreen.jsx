@@ -31,14 +31,20 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
   const [ongoingEvents, setOngoingEvents] = useState([]);
   const [futureEvents, setFutureEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
-
+  const [completedEvents, setCompletedEvents] = useState([]);
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  
   // Subtle animations
   const categoriesOpacity = useRef(new Animated.Value(0)).current;
   const categoriesY = useRef(new Animated.Value(10)).current;
 
   useEffect(() => {
     fetchCategories();
-    fetchAllEvents();
+    fetchAllEvents(1, true); // Initial load
   }, []);
 
   useEffect(() => {
@@ -90,13 +96,23 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
     }
   };
 
-  const fetchAllEvents = async () => {
+  const fetchAllEvents = async (page = 1, isInitial = false) => {
+    // Prevent multiple simultaneous requests
+    if (loadingMore || (!isInitial && !hasMore)) return;
+
     try {
-      setLoadingEvents(true);
+      if (isInitial) {
+        setLoadingEvents(true);
+      } else {
+        setLoadingMore(true);
+      }
+
       const token = await AsyncStorage.getItem("token");
       const isGuest = await AsyncStorage.getItem("isGuest");
 
-      const url = isExploreMode || isGuest === "true" ? "/event/explore" : "/event";
+      const baseUrl = isExploreMode || isGuest === "true" ? "/event/explore" : "/event";
+      const url = `${baseUrl}?limit=10&page=${page}`;
+      
       const config = isGuest === "true" || !token 
         ? {} 
         : { headers: { Authorization: `Bearer ${token}` } };
@@ -104,8 +120,23 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       const response = await api.get(url, config);
 
       if (response.data.success) {
-        const events = response.data.data;
-        categorizeEvents(events);
+        const newEvents = response.data.data;
+        
+        // Check if there are more events to load
+        if (newEvents.length < 10) {
+          setHasMore(false);
+        }
+
+        if (isInitial) {
+          // Initial load - replace all events
+          categorizeEvents(newEvents);
+        } else {
+          // Pagination - append new events
+          const updatedEvents = [...allEvents, ...newEvents];
+          categorizeEvents(updatedEvents);
+        }
+
+        setCurrentPage(page);
       }
     } catch (error) {
       console.error("Error fetching events:", error);
@@ -116,6 +147,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       });
     } finally {
       setLoadingEvents(false);
+      setLoadingMore(false);
     }
   };
 
@@ -136,12 +168,11 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       // Note: draft and cancelled events are excluded from the feed
     });
   
-    // console.log("Ongoing Events:", ongoing);
-    // console.log("Pending Events:", pending);
-    // console.log("Completed Events:", completed);
+    console.log("Completed Events:", completed);
     
     setOngoingEvents(ongoing);
     setFutureEvents(pending);
+    setCompletedEvents(completed);
     setAllEvents(events);
   };
 
@@ -168,7 +199,6 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       if (response.data.success) {
         setSearchResults(response.data.data);
       }
-      // console.log("Search Results:", response.data.data);
     } catch (error) {
       console.error("Error searching events:", error);
       Toast.show({
@@ -216,54 +246,118 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
     };
   };
 
-  // Create randomized sections
+  // Create advanced randomized feed with interleaved sections
   const createRandomizedFeed = () => {
     const sections = [];
     let allEventsIndex = 0;
     let ongoingIndex = 0;
     let futureIndex = 0;
-  
-    const sectionTypes = ['all', 'ongoing', 'future'];
-    const randomizedTypes = [...sectionTypes].sort(() => Math.random() - 0.5);
-  
-    randomizedTypes.forEach((type, index) => {
-      if (type === 'ongoing' && ongoingEvents.length > 0) {
+    let completedEventsIndex = 0;
+
+    // Calculate how many sections we can create for each type
+    const maxOngoingSections = Math.ceil(ongoingEvents.length / 3);
+    const maxFutureSections = Math.ceil(futureEvents.length / 3);
+    const maxCompletedSections = Math.ceil(completedEvents.length / 3);
+    const maxAllSections = Math.ceil(allEvents.length / 4);
+
+    // Create a pool of section types based on available content
+    const sectionPool = [];
+    
+    // Add ongoing sections to pool
+    for (let i = 0; i < maxOngoingSections; i++) {
+      sectionPool.push({ type: 'ongoing', index: i });
+    }
+    
+    // Add future sections to pool
+    for (let i = 0; i < maxFutureSections; i++) {
+      sectionPool.push({ type: 'future', index: i });
+    }
+    
+    // Add completed sections to pool
+    for (let i = 0; i < maxCompletedSections; i++) {
+      sectionPool.push({ type: 'completed', index: i });
+    }
+    
+    // Add "all" sections to pool
+    for (let i = 0; i < maxAllSections; i++) {
+      sectionPool.push({ type: 'all', index: i });
+    }
+
+    // Shuffle the entire pool
+    const shuffledPool = [...sectionPool].sort(() => Math.random() - 0.5);
+
+    // Build sections from shuffled pool
+    shuffledPool.forEach((item, idx) => {
+      if (item.type === 'ongoing' && ongoingIndex < ongoingEvents.length) {
         const sectionEvents = ongoingEvents.slice(ongoingIndex, ongoingIndex + 3);
-        sections.push({
-          id: `ongoing-${index}`,
-          type: 'ongoing',
-          status: 'ongoing',
-          title: 'Happening Now',
-          events: sectionEvents,
-          scrollDirection: 'horizontal'
-        });
-        ongoingIndex += 3;
-      } else if (type === 'future' && futureEvents.length > 0) {
+        if (sectionEvents.length > 0) {
+          sections.push({
+            id: `ongoing-${idx}`,
+            type: 'ongoing',
+            status: 'ongoing',
+            title: 'Happening Now',
+            events: sectionEvents,
+            scrollDirection: 'horizontal'
+          });
+          ongoingIndex += 3;
+        }
+      } else if (item.type === 'future' && futureIndex < futureEvents.length) {
         const sectionEvents = futureEvents.slice(futureIndex, futureIndex + 3);
-        sections.push({
-          id: `future-${index}`,
-          type: 'future',
-          status: 'pending',
-          title: 'Upcoming Events',
-          events: sectionEvents,
-          scrollDirection: 'horizontal'
-        });
-        futureIndex += 3;
-      } else if (type === 'all' && allEvents.length > 0) {
+        if (sectionEvents.length > 0) {
+          sections.push({
+            id: `future-${idx}`,
+            type: 'future',
+            status: 'pending',
+            title: 'Upcoming Events',
+            events: sectionEvents,
+            scrollDirection: 'horizontal'
+          });
+          futureIndex += 3;
+        }
+      } else if (item.type === 'completed' && completedEventsIndex < completedEvents.length) {
+        const sectionEvents = completedEvents.slice(completedEventsIndex, completedEventsIndex + 3);
+        if (sectionEvents.length > 0) {
+          sections.push({
+            id: `completed-${idx}`,
+            type: 'completed',
+            status: 'completed',
+            title: 'Past Events',
+            events: sectionEvents,
+            scrollDirection: 'horizontal'
+          });
+          completedEventsIndex += 3;
+        }
+      } else if (item.type === 'all' && allEventsIndex < allEvents.length) {
         const sectionEvents = allEvents.slice(allEventsIndex, allEventsIndex + 4);
-        sections.push({
-          id: `all-${index}`,
-          type: 'all',
-          status: null,
-          title: 'Explore Events',
-          events: sectionEvents,
-          scrollDirection: 'vertical'
-        });
-        allEventsIndex += 4;
+        if (sectionEvents.length > 0) {
+          sections.push({
+            id: `all-${idx}`,
+            type: 'all',
+            status: null,
+            title: 'Explore Events',
+            events: sectionEvents,
+            scrollDirection: 'vertical'
+          });
+          allEventsIndex += 4;
+        }
       }
     });
-  
+
     return sections;
+  };
+
+  // Handle scroll to load more
+  const handleScroll = ({ nativeEvent }) => {
+    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+    const paddingToBottom = 20;
+    
+    // Check if user is near the bottom
+    const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= 
+      contentSize.height - paddingToBottom;
+
+    if (isCloseToBottom && hasMore && !loadingMore && !loadingEvents) {
+      fetchAllEvents(currentPage + 1, false);
+    }
   };
 
   // If searching, show search results
@@ -315,6 +409,8 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       showsVerticalScrollIndicator={false}
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
+      onScroll={handleScroll}
+      scrollEventThrottle={400}
     >
       {/* ===== CATEGORIES SECTION ===== */}
       <Animated.View
@@ -349,56 +445,76 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
           <Text style={styles.loadingText}>Loading events...</Text>
         </View>
       ) : (
-        randomizedSections.map((section) => (
-          <View key={section.id} style={styles.sectionContainer}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.title, styles.sectionSpacing]}>
-                {section.title}
-              </Text>
-              {section.scrollDirection === 'horizontal' && section.status && (
-                <TouchableOpacity
-                  onPress={() => {
-                    router.push(`/events/all/${section.status}`);
-                  }}
+        <>
+          {randomizedSections.map((section) => (
+            <View key={section.id} style={styles.sectionContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.title, styles.sectionSpacing]}>
+                  {section.title}
+                </Text>
+                {section.scrollDirection === 'horizontal' && section.status && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      router.push(`/events/all/${section.status}`);
+                    }}
+                  >
+                    <Text style={styles.viewAllText}>View All</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {section.scrollDirection === 'horizontal' ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.scrollContent}
                 >
-                  <Text style={styles.viewAllText}>View All</Text>
-                </TouchableOpacity>
+                  {section.events.map((event) => {
+                    const media = getEventMedia(event);
+
+                    return (
+                      <LiveEventCard
+                        key={event._id}
+                        imgSrc={media.type === 'image' ? media.src : undefined}
+                        videoSrc={media.type === 'video' ? media.src : undefined}
+                        title={event.name}
+                        caption={event.description}
+                        date={formatDate(event.start)}
+                        time={formatTime(event.start)}
+                        location={event.address}
+                        price={event.isTicket ? `₦${event.ticketAmount}` : "Free"}
+                        eventId={event._id}
+                      />
+                    );
+                  })}
+                </ScrollView>
+              ) : (
+                <ExploreEvents 
+                  events={section.events} 
+                  isExploreMode={isExploreMode} 
+                />
               )}
             </View>
+          ))}
 
-            {section.scrollDirection === 'horizontal' ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
-              >
-                {section.events.map((event) => {
-                  const media = getEventMedia(event);
+          {/* Loading More Indicator */}
+          {loadingMore && (
+            <View style={styles.loadingMoreContainer}>
+              <ActivityIndicator size="small" color="#5A31F4" />
+              <Text style={styles.loadingMoreText}>Loading more events...</Text>
+            </View>
+          )}
 
-                  return (
-                    <LiveEventCard
-                      key={event._id}
-                      imgSrc={media.type === 'image' ? media.src : undefined}
-                      videoSrc={media.type === 'video' ? media.src : undefined}
-                      title={event.name}
-                      caption={event.description}
-                      date={formatDate(event.start)}
-                      time={formatTime(event.start)}
-                      location={event.address}
-                      price={event.isTicket ? `₦${event.ticketAmount}` : "Free"}
-                      eventId={event._id}
-                    />
-                  );
-                })}
-              </ScrollView>
-            ) : (
-              <ExploreEvents 
-                events={allEvents} 
-                isExploreMode={isExploreMode} 
-              />
-            )}
-          </View>
-        ))
+          {/* End of Feed Indicator */}
+          {!hasMore && allEvents.length > 0 && (
+            <View style={styles.endOfFeedContainer}>
+              <Text style={styles.endOfFeedText}>You've reached the end!</Text>
+              <Text style={styles.endOfFeedSubtext}>
+                That's all the events for now
+              </Text>
+            </View>
+          )}
+        </>
       )}
     </ScrollView>
   );
@@ -481,5 +597,32 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_500Medium",
     color: "#5A31F4",
     fontSize: 13,
+  },
+  loadingMoreContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+    gap: 10,
+  },
+  loadingMoreText: {
+    fontFamily: "Poppins_400Regular",
+    color: "#666",
+    fontSize: 13,
+  },
+  endOfFeedContainer: {
+    alignItems: "center",
+    paddingVertical: 30,
+  },
+  endOfFeedText: {
+    fontFamily: "Poppins_500Medium",
+    color: "#666",
+    fontSize: 14,
+  },
+  endOfFeedSubtext: {
+    fontFamily: "Poppins_400Regular",
+    color: "#999",
+    fontSize: 12,
+    marginTop: 5,
   },
 });
