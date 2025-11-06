@@ -392,7 +392,7 @@ export default function EditEvent() {
           return toast.error('Invalid end date. Please check your input.');
         }
       }
-
+     
       const eventData = {
         name: name.trim(),
         description: description.trim(),
@@ -435,7 +435,145 @@ export default function EditEvent() {
       setUploadProgress('');
     }
   };
+  const handleSaveToDraft = async () => {
+    const {
+      name,
+      description,
+      address,
+      capacity,
+      categoryId,
+      isTicket,
+      ticketAmount,
+      isSponsored,
+      sponsorAmount,
+    } = form;
 
+    // Minimal validation for draft
+    if (!name.trim()) {
+      return Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Event name is required',
+      });
+    }
+
+    if (!address.trim()) {
+      return Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Event address is required',
+      });
+    }
+
+    if (!categoryId) {
+      return Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Please select an event category',
+      });
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      const token = await AsyncStorage.getItem('token');
+      let startDate = null;
+      const isValidDateInput = (year, month, day) => {
+        return (
+          year && month && day &&
+          !isNaN(parseInt(year)) &&
+          !isNaN(parseInt(month)) &&
+          !isNaN(parseInt(day))
+        );
+      };
+        if (isValidDateInput(form.startYear, form.startMonth, form.startDay)) {
+          startDate = new Date(
+            `${form.startYear}-${form.startMonth.padStart(2, '0')}-${form.startDay.padStart(2, '0')}T${form.startHour?.padStart(2, '0') || '00'}:${form.startMinute?.padStart(2, '0') || '00'}:00.000Z`
+          );
+
+          if (isNaN(startDate.getTime())) {
+            return Toast.show({
+              type: 'error',
+              text1: 'Invalid Start Date',
+              text2: 'Please check your start date inputs',
+            });
+          }
+        }
+
+      let endDate = null;
+      if (form.endYear && form.endMonth && form.endDay) {
+        endDate = new Date(
+          `${form.endYear}-${form.endMonth?.padStart(2, '0')}-${form.endDay?.padStart(2, '0')}T${form.endHour?.padStart(2, '0') || '00'}:${form.endMinute?.padStart(2, '0') || '00'}:00.000Z`
+        );
+
+        if (isNaN(endDate.getTime())) {
+          return Toast.show({
+            type: 'error',
+            text1: 'Invalid Date',
+            text2: 'Please check your end date',
+          });
+        }
+      }
+      const { images: uploadedImages, videos: uploadedVideos } = await uploadAllMedia();
+
+      // Prepare draft data (no media upload required for draft)
+      const draftData = {
+        name: name.trim(),
+        ...(description && {description: description.trim()}),
+        ...(address && { address: address.trim()}),
+        ...(form.lat && {lat: form.lat || '0'}),
+        ...(form.long && {long: form.long || '0'}),
+        ...(capacity && {capacity: capacity}),
+        ...(isTicket && {isTicket: isTicket}),
+        ...(ticketAmount && {ticketAmount: isTicket ? parseFloat(ticketAmount) || 0 : 0}),
+        ...(isSponsored && {isSponsored: isSponsored}),
+        ...(sponsorAmount && {sponsorAmount: isSponsored ? parseFloat(sponsorAmount) || 0 : 0}),
+        ...(startDate && { start: startDate.toISOString()}),
+        ...(startDate && !isNaN(startDate.getTime()) && { start: startDate.toISOString() }),
+        categoryId: categoryId,
+       ...(uploadedVideos &&  {type: uploadedVideos.length > 0 ? 'videos' : 'images'}),
+        ...(uploadedImages.length > 0 && { images: uploadedImages }),
+        ...(uploadedVideos.length > 0 && { videos: uploadedVideos }),
+        ...(form.isOrganizer && {isOrganizer: form.isOrganizer}),
+        ...(form.isHost &&  {isHost: form.isHost}),
+
+      };
+
+      console.log('Saving draft:', draftData);
+
+      const response = await api.post('/event/draft', draftData, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      Toast.show({
+        type: 'success',
+        text1: 'Draft Saved! 📝',
+        text2: 'Your event has been saved as draft',
+      });
+      // toast.success('Your event has been saved as draft');
+
+      router.back();
+    } catch (error) {
+      console.error('Error saving draft:', error.response || error);
+      const message =
+        error.response?.data?.error ||
+        error.message ||
+        'Failed to save draft. Please try again.';
+      Toast.show({
+        type: 'error',
+        text1: 'Save Failed',
+        text2: message,
+      });
+      // toast.error(message);
+      // error('Something went wrong!');
+
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -869,7 +1007,18 @@ export default function EditEvent() {
               />
             </View>
           </View>
-            {/* Update Button */}
+          <View style={styles.buttonContainer}>
+          <TouchableOpacity
+              style={styles.draftButton}
+              onPress={handleSaveToDraft}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.draftButtonText}>
+                {isSubmitting ? 'Saving...' : '📝 Save to Draft'}
+              </Text>
+            </TouchableOpacity>
+               {/* Update Button */}
             <TouchableOpacity
               style={styles.createButton}
               onPress={handleUpdateEvent}
@@ -880,6 +1029,8 @@ export default function EditEvent() {
                 {isSubmitting ? 'Updating...' : 'Update Event'}
               </Text>
             </TouchableOpacity>
+          </View>
+           
           </Animated.View>
         </ScrollView>
        
@@ -899,6 +1050,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
   },
+  draftButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#5A31F4',
+    borderRadius: 12,
+    paddingVertical: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  draftButtonText: {
+    color: '#5A31F4',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
+  },
   loadingText: {
     marginTop: 10,
     fontFamily: 'Poppins_400Regular',
@@ -912,6 +1079,11 @@ const styles = StyleSheet.create({
   formContainer: {
     paddingHorizontal: width * 0.04,
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
   },
   header: {
     flexDirection: 'row',
@@ -1106,6 +1278,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#5A31F4',
     borderRadius: 12,
     paddingVertical: 16,
+    paddingHorizontal: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 10,

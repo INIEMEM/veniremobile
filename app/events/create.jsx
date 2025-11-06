@@ -704,7 +704,7 @@ export default function CreateEvent() {
           {/* Description */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Description *</Text>
-            <TouchableOpacity
+            {/* <TouchableOpacity
                 activeOpacity={0.9}
                 onPress={() => {
                   setComposerVisible(true);
@@ -720,7 +720,17 @@ export default function CreateEvent() {
                     Tell people about your event...
                   </Text>
                 )}
-              </TouchableOpacity>
+              </TouchableOpacity> */}
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={form.description}
+                onChangeText={(text) => handleChange('description', text)}
+                placeholder="Tell people about your event..."
+                placeholderTextColor="#999"
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
           </View>
 
           {/* Address */}
