@@ -61,6 +61,8 @@ export default function EditEvent() {
     endHour: '',
     endMinute: '',
     categoryId: '',
+    isOrganizer: false,
+    isHost: false,
   });
 
   // Animations
@@ -408,6 +410,8 @@ export default function EditEvent() {
         type: allVideos.length > 0 ? 'videos' : 'images',
         ...(allImages.length > 0 && { images: allImages }),
         ...(allVideos.length > 0 && { videos: allVideos }),
+        ...(form.isOrganizer && {isOrganizer: form.isOrganizer}),
+        ...(form.isHost &&  {isHost: form.isHost}),
       };
 
       const response = await api.put(`/event/${id}`, eventData, {
@@ -840,7 +844,31 @@ export default function EditEvent() {
                 />
               )}
             </View>
+               {/* Organizer */}
+          <View style={styles.switchContainer}>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Are you the organizer?</Text>
+              <Switch
+                value={form.isOrganizer}
+                onValueChange={(value) => handleChange('isOrganizer', value)}
+                trackColor={{ false: '#ccc', true: '#5A31F4' }}
+                thumbColor="#fff"
+              />
+            </View>
+          </View>
 
+          {/* Host */}
+          <View style={styles.switchContainer}>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Are you the host?</Text>
+              <Switch
+                value={form.isHost}
+                onValueChange={(value) => handleChange('isHost', value)}
+                trackColor={{ false: '#ccc', true: '#5A31F4' }}
+                thumbColor="#fff"
+              />
+            </View>
+          </View>
             {/* Update Button */}
             <TouchableOpacity
               style={styles.createButton}

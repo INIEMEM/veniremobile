@@ -86,6 +86,7 @@ export default function EventDetailsScreen() {
           : response.data.data;
         setEvent(eventData);
       }
+      console.log("Fetched event data:", response.data);
     } catch (error) {
       console.error("Error fetching event details:", error);
       Toast.show({
@@ -355,12 +356,21 @@ export default function EventDetailsScreen() {
   };
 
   const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+   const utcDate = new Date(dateString);
+  // Force to UTC components (no timezone offset)
+  const localDate = new Date(
+    utcDate.getUTCFullYear(),
+    utcDate.getUTCMonth(),
+    utcDate.getUTCDate(),
+    utcDate.getUTCHours(),
+    utcDate.getUTCMinutes()
+  );
+
+  return localDate.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
   };
 
   const getEventMedia = (event) => {
@@ -644,7 +654,7 @@ export default function EventDetailsScreen() {
               </Text>
             </TouchableOpacity>
 
-            {isOwner && (
+            {isOwner && !isDraft && (
               <TouchableOpacity
                 style={[styles.optionItem, styles.statusOption]}
                 onPress={() => {

@@ -35,7 +35,8 @@ export default function CreateEvent() {
   const [selectedMedia, setSelectedMedia] = useState([]);
   const [uploadProgress, setUploadProgress] = useState('');
   const [composerVisible, setComposerVisible] = useState(false);
-  const { toast } = useToast();
+  // const { toast } = useToast();
+  const { success, error, info, warning } = useToast();
   const scrollRef = useRef(null); 
   useEffect(() => {
     if (composerVisible && scrollRef.current) {
@@ -88,12 +89,12 @@ export default function CreateEvent() {
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      // Toast.show({
-      //   type: 'error',
-      //   text1: 'Permission Required',
-      //   text2: 'Please grant media library permissions to upload files',
-      // });
-      toast.error('Please grant media library permissions to upload files');
+      Toast.show({
+        type: 'error',
+        text1: 'Permission Required',
+        text2: 'Please grant media library permissions to upload files',
+      });
+      // toast.error('Please grant media library permissions to upload files');
     }
   };
 
@@ -142,12 +143,12 @@ export default function CreateEvent() {
 
         const oversizedFiles = newMedia.filter(m => m.fileSize && m.fileSize > 50 * 1024 * 1024);
         if (oversizedFiles.length > 0) {
-          // Toast.show({
-          //   type: 'error',
-          //   text1: 'File Too Large',
-          //   text2: 'Please select videos smaller than 50MB',
-          // });
-          toast.error('Please select videos smaller than 50MB');
+          Toast.show({
+            type: 'error',
+            text1: 'File Too Large',
+            text2: 'Please select videos smaller than 50MB',
+          });
+          // toast.error('Please select videos smaller than 50MB');
           return;
         }
 
@@ -155,12 +156,12 @@ export default function CreateEvent() {
       }
     } catch (error) {
       console.error('Error picking media:', error);
-      // Toast.show({
-      //   type: 'error',
-      //   text1: 'Error',
-      //   text2: 'Failed to pick media',
-      // });
-      toast.error('Failed to pick media');
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to pick media',
+      });
+      // toast.error('Failed to pick media');
     }
   };
 
@@ -308,7 +309,17 @@ export default function CreateEvent() {
   };
 
   const handleSaveToDraft = async () => {
-    const { name, address, categoryId } = form;
+    const {
+      name,
+      description,
+      address,
+      capacity,
+      categoryId,
+      isTicket,
+      ticketAmount,
+      isSponsored,
+      sponsorAmount,
+    } = form;
 
     // Minimal validation for draft
     if (!name.trim()) {
@@ -339,12 +350,66 @@ export default function CreateEvent() {
       setIsSubmitting(true);
 
       const token = await AsyncStorage.getItem('token');
-      
+      let startDate = null;
+      const isValidDateInput = (year, month, day) => {
+        return (
+          year && month && day &&
+          !isNaN(parseInt(year)) &&
+          !isNaN(parseInt(month)) &&
+          !isNaN(parseInt(day))
+        );
+      };
+        if (isValidDateInput(form.startYear, form.startMonth, form.startDay)) {
+          startDate = new Date(
+            `${form.startYear}-${form.startMonth.padStart(2, '0')}-${form.startDay.padStart(2, '0')}T${form.startHour?.padStart(2, '0') || '00'}:${form.startMinute?.padStart(2, '0') || '00'}:00.000Z`
+          );
+
+          if (isNaN(startDate.getTime())) {
+            return Toast.show({
+              type: 'error',
+              text1: 'Invalid Start Date',
+              text2: 'Please check your start date inputs',
+            });
+          }
+        }
+
+      let endDate = null;
+      if (form.endYear && form.endMonth && form.endDay) {
+        endDate = new Date(
+          `${form.endYear}-${form.endMonth?.padStart(2, '0')}-${form.endDay?.padStart(2, '0')}T${form.endHour?.padStart(2, '0') || '00'}:${form.endMinute?.padStart(2, '0') || '00'}:00.000Z`
+        );
+
+        if (isNaN(endDate.getTime())) {
+          return Toast.show({
+            type: 'error',
+            text1: 'Invalid Date',
+            text2: 'Please check your end date',
+          });
+        }
+      }
+      const { images: uploadedImages, videos: uploadedVideos } = await uploadAllMedia();
+
       // Prepare draft data (no media upload required for draft)
       const draftData = {
         name: name.trim(),
-        address: address.trim(),
+        ...(description && {description: description.trim()}),
+        ...(address && { address: address.trim()}),
+        ...(form.lat && {lat: form.lat || '0'}),
+        ...(form.long && {long: form.long || '0'}),
+        ...(capacity && {capacity: capacity}),
+        ...(isTicket && {isTicket: isTicket}),
+        ...(ticketAmount && {ticketAmount: isTicket ? parseFloat(ticketAmount) || 0 : 0}),
+        ...(isSponsored && {isSponsored: isSponsored}),
+        ...(sponsorAmount && {sponsorAmount: isSponsored ? parseFloat(sponsorAmount) || 0 : 0}),
+        ...(startDate && { start: startDate.toISOString()}),
+        ...(startDate && !isNaN(startDate.getTime()) && { start: startDate.toISOString() }),
         categoryId: categoryId,
+       ...(uploadedVideos &&  {type: uploadedVideos.length > 0 ? 'videos' : 'images'}),
+        ...(uploadedImages.length > 0 && { images: uploadedImages }),
+        ...(uploadedVideos.length > 0 && { videos: uploadedVideos }),
+        ...(form.isOrganizer && {isOrganizer: form.isOrganizer}),
+        ...(form.isHost &&  {isHost: form.isHost}),
+
       };
 
       console.log('Saving draft:', draftData);
@@ -356,12 +421,12 @@ export default function CreateEvent() {
         },
       });
 
-      // Toast.show({
-      //   type: 'success',
-      //   text1: 'Draft Saved! 📝',
-      //   text2: 'Your event has been saved as draft',
-      // });
-      toast.success('Your event has been saved as draft');
+      Toast.show({
+        type: 'success',
+        text1: 'Draft Saved! 📝',
+        text2: 'Your event has been saved as draft',
+      });
+      // toast.success('Your event has been saved as draft');
 
       router.back();
     } catch (error) {
@@ -370,12 +435,14 @@ export default function CreateEvent() {
         error.response?.data?.error ||
         error.message ||
         'Failed to save draft. Please try again.';
-      // Toast.show({
-      //   type: 'error',
-      //   text1: 'Save Failed',
-      //   text2: message,
-      // });
-      toast.error(message);
+      Toast.show({
+        type: 'error',
+        text1: 'Save Failed',
+        text2: message,
+      });
+      // toast.error(message);
+      // error('Something went wrong!');
+
     } finally {
       setIsSubmitting(false);
     }
@@ -500,7 +567,7 @@ export default function CreateEvent() {
           Authorization: `Bearer ${token}`,
         },
       });
-
+      console.log('Event created successfully:', response.data);
       // Toast.show({
       //   type: 'success',
       //   text1: 'Success! 🎉',

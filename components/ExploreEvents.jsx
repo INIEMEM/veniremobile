@@ -372,8 +372,17 @@ export default function ExploreEvents({
   };
 
   const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString("en-US", {
+    const utcDate = new Date(dateString);
+    // Force to UTC components (no timezone offset)
+    const localDate = new Date(
+      utcDate.getUTCFullYear(),
+      utcDate.getUTCMonth(),
+      utcDate.getUTCDate(),
+      utcDate.getUTCHours(),
+      utcDate.getUTCMinutes()
+    );
+  
+    return localDate.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
