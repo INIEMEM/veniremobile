@@ -125,20 +125,21 @@ export default function EditEvent() {
         if (event.end) {
           const endDate = new Date(event.end);
           endDateFields = {
-            endDay: endDate.getDate().toString().padStart(2, '0'),
-            endMonth: (endDate.getMonth() + 1).toString().padStart(2, '0'),
-            endYear: endDate.getFullYear().toString(),
-            endHour: endDate.getHours().toString().padStart(2, '0'),
-            endMinute: endDate.getMinutes().toString().padStart(2, '0'),
+            endDay: endDate.getUTCDate().toString().padStart(2, '0'),
+            endMonth: (endDate.getUTCMonth() + 1).toString().padStart(2, '0'),
+            endYear: endDate.getUTCFullYear().toString(),
+            endHour: endDate.getUTCHours().toString().padStart(2, '0'),
+            endMinute: endDate.getUTCMinutes().toString().padStart(2, '0'),
           };
         } 
-        if(event.start) {
+        if(event.start) 
+          {
           startDateFields = {
-            startDay: startDate.getDate().toString().padStart(2, '0'),
-            startMonth: (startDate.getMonth() + 1).toString().padStart(2, '0'),
-            startYear: startDate.getFullYear().toString(),
-            startHour: startDate.getHours().toString().padStart(2, '0'),
-            startMinute: startDate.getMinutes().toString().padStart(2, '0'),
+            startDay: startDate.getUTCDate().toString().padStart(2, '0'),
+            startMonth: (startDate.getUTCMonth() + 1).toString().padStart(2, '0'),
+            startYear: startDate.getUTCFullYear().toString(),
+            startHour: startDate.getUTCHours().toString().padStart(2, '0'),
+            startMinute: startDate.getUTCMinutes().toString().padStart(2, '0'),
           };
         }
         setForm({
