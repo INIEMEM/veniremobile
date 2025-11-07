@@ -351,9 +351,9 @@ export default function EditEvent() {
       return toast.error('Event address is required');
     }
 
-    if (!capacity || parseInt(capacity) <= 0) {
-      return toast.error('Please enter a valid capacity');
-    }
+    // if (!capacity || parseInt(capacity) <= 0) {
+    //   return toast.error('Please enter a valid capacity');
+    // }
 
     if (!categoryId) {
       return  toast.error('Please select a category');
@@ -1026,7 +1026,7 @@ export default function EditEvent() {
               activeOpacity={0.8}
             >
               <Text style={styles.createButtonText}>
-                {isSubmitting ? 'Updating...' : 'Update Event'}
+                {isSubmitting ? 'Updating...' : 'Post Event'}
               </Text>
             </TouchableOpacity>
           </View>

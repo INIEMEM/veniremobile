@@ -346,6 +346,8 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
     return sections;
   };
 
+  // console.log("Completed events", completedEvents);
+
   // Handle scroll to load more
   const handleScroll = ({ nativeEvent }) => {
     const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
@@ -462,7 +464,10 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
                   </TouchableOpacity>
                 )}
               </View>
+                {/* {console.log("formated date", formatDate(section.events[0].start))}
+                 */}
 
+                 {console.log("Formatted time", formatTime(section.events[0].start))}
               {section.scrollDirection === 'horizontal' ? (
                 <ScrollView
                   horizontal
