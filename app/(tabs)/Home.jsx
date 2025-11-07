@@ -15,6 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import EventsScreen from "../../components/EventsScreen";
+import FilterModal from "../../components/FilterModal";
 import { useAuth } from "../../context/AuthContext";
 import { truncateText } from "../../utils/truncateText";
 
@@ -25,6 +26,8 @@ export default function Home() {
   const [isGuest, setIsGuest] = useState(false);
   const [selectedTab, setSelectedTab] = useState("events");
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState("all");
   const router = useRouter();
   const toggleAnim = useRef(new Animated.Value(0)).current;
   // Subtle animations
@@ -147,6 +150,15 @@ export default function Home() {
     await AsyncStorage.removeItem("isGuest");
     router.push("/auth/login");
   };
+
+  const handleFilterPress = () => {
+    setFilterModalVisible(true);
+  };
+
+  const handleSelectFilter = (filter) => {
+    setSelectedFilter(filter);
+  };
+
   console.log('the profile image', user?.profile_picture)
   return (
     <View style={styles.container}>
@@ -306,8 +318,22 @@ export default function Home() {
         </View>
 
         {/* Filter Button */}
-        <TouchableOpacity style={styles.filterButton} activeOpacity={0.7}>
-          <Ionicons name="options-outline" size={22} color="#666" />
+        <TouchableOpacity 
+          style={[
+            styles.filterButton,
+            selectedFilter !== "all" && styles.filterButtonActive
+          ]} 
+          activeOpacity={0.7}
+          onPress={handleFilterPress}
+        >
+          <Ionicons 
+            name="options-outline" 
+            size={22} 
+            color={selectedFilter !== "all" ? "#5A31F4" : "#666"} 
+          />
+          {selectedFilter !== "all" && (
+            <View style={styles.filterBadge} />
+          )}
         </TouchableOpacity>
       </Animated.View>
 
@@ -322,7 +348,11 @@ export default function Home() {
         ]}
       >
         {selectedTab === "events" ? (
-          <EventsScreen isExploreMode={isGuest} searchQuery={searchQuery} />
+          <EventsScreen 
+            isExploreMode={isGuest} 
+            searchQuery={searchQuery}
+            filterStatus={selectedFilter}
+          />
         ) : (
           <View style={styles.comingSoonContainer}>
             <Text style={styles.comingSoonText}>
@@ -331,6 +361,14 @@ export default function Home() {
           </View>
         )}
       </Animated.View>
+
+      {/* Filter Modal */}
+      <FilterModal
+        visible={filterModalVisible}
+        onClose={() => setFilterModalVisible(false)}
+        selectedFilter={selectedFilter}
+        onSelectFilter={handleSelectFilter}
+      />
     </View>
   );
 }
@@ -493,6 +531,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
+    position: "relative",
+  },
+  filterButtonActive: {
+    backgroundColor: "#f8f4ff",
+    borderWidth: 1,
+    borderColor: "#e8dbff",
+  },
+  filterBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#5A31F4",
   },
   contentArea: {
     flex: 1,

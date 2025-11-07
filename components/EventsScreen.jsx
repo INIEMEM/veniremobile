@@ -21,7 +21,11 @@ import Toast from "react-native-toast-message";
 
 const { width, height } = Dimensions.get("window");
 
-export default function EventsScreen({ isExploreMode = false, searchQuery = "" }) {
+export default function EventsScreen({ 
+  isExploreMode = false, 
+  searchQuery = "",
+  filterStatus = "all" 
+}) {
   const router = useRouter();
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -236,7 +240,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
      minute: "2-digit",
      hour12: true,
    });
-   };
+  };
  
 
   // Helper function to get event media (video or image)
@@ -256,8 +260,50 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
     };
   };
 
+  // Filter events based on selected filter
+  const getFilteredEvents = () => {
+    if (filterStatus === "all") {
+      return allEvents;
+    } else if (filterStatus === "ongoing") {
+      return ongoingEvents;
+    } else if (filterStatus === "pending") {
+      return futureEvents;
+    } else if (filterStatus === "completed") {
+      return completedEvents;
+    }
+    return allEvents;
+  };
+
   // Create advanced randomized feed with interleaved sections
   const createRandomizedFeed = () => {
+    // If filter is active, show filtered events only
+    if (filterStatus !== "all") {
+      const filteredEvents = getFilteredEvents();
+      const sections = [];
+      
+      // Create sections of 4 events each for vertical scroll
+      for (let i = 0; i < filteredEvents.length; i += 4) {
+        const sectionEvents = filteredEvents.slice(i, i + 4);
+        if (sectionEvents.length > 0) {
+          sections.push({
+            id: `filtered-${filterStatus}-${i}`,
+            type: filterStatus,
+            status: filterStatus,
+            title: filterStatus === "ongoing" 
+              ? "Happening Now" 
+              : filterStatus === "pending" 
+              ? "Upcoming Events" 
+              : "Past Events",
+            events: sectionEvents,
+            scrollDirection: 'vertical'
+          });
+        }
+      }
+      
+      return sections;
+    }
+
+    // Default randomized feed when filter is "all"
     const sections = [];
     let allEventsIndex = 0;
     let ongoingIndex = 0;
@@ -356,8 +402,6 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
     return sections;
   };
 
-  // console.log("Completed events", completedEvents);
-
   // Handle scroll to load more
   const handleScroll = ({ nativeEvent }) => {
     const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
@@ -416,6 +460,14 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
 
   const randomizedSections = createRandomizedFeed();
 
+  // Get filter label for display
+  const getFilterLabel = () => {
+    if (filterStatus === "ongoing") return "Happening Now";
+    if (filterStatus === "pending") return "Upcoming Events";
+    if (filterStatus === "completed") return "Past Events";
+    return null;
+  };
+
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
@@ -425,30 +477,41 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
       scrollEventThrottle={400}
     >
       {/* ===== CATEGORIES SECTION ===== */}
-      <Animated.View
-        style={{
-          transform: [{ translateY: categoriesY }],
-          opacity: categoriesOpacity,
-        }}
-      >
-        <Text style={styles.title}>Categories</Text>
+      {filterStatus === "all" && (
+        <Animated.View
+          style={{
+            transform: [{ translateY: categoriesY }],
+            opacity: categoriesOpacity,
+          }}
+        >
+          <Text style={styles.title}>Categories</Text>
 
-        {loadingCategories ? (
-          <View style={styles.categoriesLoadingContainer}>
-            <ActivityIndicator size="small" color="#5A31F4" />
-          </View>
-        ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-          >
-            {categories.map((category) => (
-              <EventCategoryBoxes key={category._id} category={category} />
-            ))}
-          </ScrollView>
-        )}
-      </Animated.View>
+          {loadingCategories ? (
+            <View style={styles.categoriesLoadingContainer}>
+              <ActivityIndicator size="small" color="#5A31F4" />
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+            >
+              {categories.map((category) => (
+                <EventCategoryBoxes key={category._id} category={category} />
+              ))}
+            </ScrollView>
+          )}
+        </Animated.View>
+      )}
+
+      {/* ===== FILTER ACTIVE INDICATOR ===== */}
+      {filterStatus !== "all" && (
+        <View style={styles.filterActiveContainer}>
+          <Text style={styles.filterActiveText}>
+            Showing: {getFilterLabel()}
+          </Text>
+        </View>
+      )}
 
       {/* ===== RANDOMIZED EVENT SECTIONS ===== */}
       {loadingEvents ? (
@@ -456,7 +519,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
           <ActivityIndicator size="large" color="#5A31F4" />
           <Text style={styles.loadingText}>Loading events...</Text>
         </View>
-      ) : (
+      ) : randomizedSections.length > 0 ? (
         <>
           {randomizedSections.map((section) => (
             <View key={section.id} style={styles.sectionContainer}>
@@ -464,7 +527,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
                 <Text style={[styles.title, styles.sectionSpacing]}>
                   {section.title}
                 </Text>
-                {section.scrollDirection === 'horizontal' && section.status && (
+                {section.scrollDirection === 'horizontal' && section.status && filterStatus === "all" && (
                   <TouchableOpacity
                     onPress={() => {
                       router.push(`/events/all/${section.status}`);
@@ -474,10 +537,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
                   </TouchableOpacity>
                 )}
               </View>
-                {/* {console.log("formated date", formatDate(section.events[0].start))}
-                 */}
 
-                 {/* {console.log("Formatted time", formatTime(section.events[0].start))} */}
               {section.scrollDirection === 'horizontal' ? (
                 <ScrollView
                   horizontal
@@ -513,7 +573,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
           ))}
 
           {/* Loading More Indicator */}
-          {loadingMore && (
+          {loadingMore && filterStatus === "all" && (
             <View style={styles.loadingMoreContainer}>
               <ActivityIndicator size="small" color="#5A31F4" />
               <Text style={styles.loadingMoreText}>Loading more events...</Text>
@@ -521,7 +581,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
           )}
 
           {/* End of Feed Indicator */}
-          {!hasMore && allEvents.length > 0 && (
+          {!hasMore && allEvents.length > 0 && filterStatus === "all" && (
             <View style={styles.endOfFeedContainer}>
               <Text style={styles.endOfFeedText}>You've reached the end!</Text>
               <Text style={styles.endOfFeedSubtext}>
@@ -530,6 +590,17 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
             </View>
           )}
         </>
+      ) : (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="calendar-outline" size={64} color="#ccc" />
+          <Text style={styles.emptyText}>No events available</Text>
+          <Text style={styles.emptySubtext}>
+            {filterStatus !== "all" 
+              ? "Try selecting a different filter" 
+              : "Check back later for new events"
+            }
+          </Text>
+        </View>
       )}
     </ScrollView>
   );
@@ -586,6 +657,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 60,
   },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 60,
+    marginTop: 40,
+  },
   emptyText: {
     marginTop: 15,
     fontFamily: "Poppins_500Medium",
@@ -639,5 +717,19 @@ const styles = StyleSheet.create({
     color: "#999",
     fontSize: 12,
     marginTop: 5,
+  },
+  filterActiveContainer: {
+    backgroundColor: "#f8f4ff",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#e8dbff",
+  },
+  filterActiveText: {
+    fontFamily: "Poppins_500Medium",
+    color: "#5A31F4",
+    fontSize: 14,
   },
 });

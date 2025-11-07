@@ -11,17 +11,16 @@ import {
   RefreshControl,
   Modal,
   Alert,
+  Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Dimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video } from "expo-av";
-
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
-
 import CommentsSection from "../../../components/CommentsSection";
 import api from "../../../utils/axiosInstance";
+
 const { width, height } = Dimensions.get("window");
 
 const EVENT_STATUSES = [
@@ -46,6 +45,8 @@ export default function EventDetailsScreen() {
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
+  const [showImageViewer, setShowImageViewer] = useState(false);
+  const [imageScale] = useState(new Animated.Value(1));
 
   useEffect(() => {
     if (id) {
@@ -71,7 +72,6 @@ export default function EventDetailsScreen() {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
 
-      // Use different endpoint based on whether it's a draft
       const endpoint = isDraft 
         ? `/event/draft/key?key=_id&value=${id}`
         : `/event/key?key=_id&value=${id}`;
@@ -103,6 +103,27 @@ export default function EventDetailsScreen() {
     setRefreshing(true);
     await fetchEventDetails();
     setRefreshing(false);
+  };
+
+  const handleImagePress = () => {
+    setShowImageViewer(true);
+    // Animate the image scale when opening
+    Animated.spring(imageScale, {
+      toValue: 1,
+      friction: 7,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleCloseImageViewer = () => {
+    Animated.timing(imageScale, {
+      toValue: 0.8,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowImageViewer(false);
+      imageScale.setValue(1);
+    });
   };
 
   const handleLike = async () => {
@@ -260,7 +281,6 @@ export default function EventDetailsScreen() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // Update local state
       setEvent((prev) => ({
         ...prev,
         userStatus: newStatus,
@@ -309,7 +329,6 @@ export default function EventDetailsScreen() {
       setDeleting(true);
       const token = await AsyncStorage.getItem("token");
 
-      // Use different endpoint for drafts
       const endpoint = isDraft 
         ? `/event/draft/${event._id}`
         : `/event/${event._id}`;
@@ -356,21 +375,20 @@ export default function EventDetailsScreen() {
   };
 
   const formatTime = (dateString) => {
-   const utcDate = new Date(dateString);
-  // Force to UTC components (no timezone offset)
-  const localDate = new Date(
-    utcDate.getUTCFullYear(),
-    utcDate.getUTCMonth(),
-    utcDate.getUTCDate(),
-    utcDate.getUTCHours(),
-    utcDate.getUTCMinutes()
-  );
+    const utcDate = new Date(dateString);
+    const localDate = new Date(
+      utcDate.getUTCFullYear(),
+      utcDate.getUTCMonth(),
+      utcDate.getUTCDate(),
+      utcDate.getUTCHours(),
+      utcDate.getUTCMinutes()
+    );
 
-  return localDate.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+    return localDate.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
   };
 
   const getEventMedia = (event) => {
@@ -438,7 +456,6 @@ export default function EventDetailsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Status Badge */}
         <View style={[styles.statusBadge, { backgroundColor: `${statusInfo.color}20`, borderColor: statusInfo.color }]}>
           <Ionicons name={statusInfo.icon} size={16} color={statusInfo.color} />
           <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
@@ -450,7 +467,6 @@ export default function EventDetailsScreen() {
           {isDraft ? 'Draft Details' : 'Event Details'}
         </Text>
 
-        {/* Organizer Info */}
         <View style={styles.avatarContainer}>
           <View style={styles.organizerName}>
             <Image source={{ uri: organizerImage }} style={styles.replyAvatar} />
@@ -471,14 +487,17 @@ export default function EventDetailsScreen() {
           </View>
         </View>
 
-        {/* Event Description */}
         <Text style={[styles.smalltitle, { marginTop: 20 }]}>
           Event Description
         </Text>
         <Text style={styles.desc}>{event.description}</Text>
 
-        {/* Event Media */}
-        <View style={styles.mediaContainer}>
+        {/* Event Media with TouchableOpacity */}
+        <TouchableOpacity 
+          style={styles.mediaContainer}
+          onPress={media.type === 'image' ? handleImagePress : null}
+          activeOpacity={media.type === 'image' ? 0.8 : 1}
+        >
           {media.type === 'video' ? (
             <Video
               source={{ uri: media.uri }}
@@ -491,9 +510,13 @@ export default function EventDetailsScreen() {
           ) : (
             <Image source={{ uri: media.uri }} style={styles.eventMedia} />
           )}
-        </View>
+          {media.type === 'image' && (
+            <View style={styles.expandIconContainer}>
+              <Ionicons name="expand-outline" size={24} color="#fff" />
+            </View>
+          )}
+        </TouchableOpacity>
 
-        {/* Event Info */}
         <View style={styles.eventDetails}>
           <Text style={styles.smalltitle}>{event.name}</Text>
           <Text style={styles.caption}>
@@ -506,7 +529,7 @@ export default function EventDetailsScreen() {
             </Text>
           </View>
 
-          <Text> {event.end &&  'End Date:'} </Text>
+          <Text> {event.end && 'End Date:'} </Text>
           <View style={styles.infoRow}>
             <Text style={styles.dateTime}>
               {event?.end && formatDate(event?.end)} • {event.end && formatTime(event?.end)}
@@ -539,7 +562,6 @@ export default function EventDetailsScreen() {
             </Text>
           </View>
 
-          {/* Stats Row - Only show for published events */}
           {!isDraft && (
             <View style={styles.statsRow}>
               <TouchableOpacity onPress={handleLike}>
@@ -599,7 +621,6 @@ export default function EventDetailsScreen() {
           )}
         </View>
 
-        {/* Comments Toggle - Only for published events */}
         {!isDraft && (
           <TouchableOpacity
             style={styles.viewCommentsBtn}
@@ -617,7 +638,36 @@ export default function EventDetailsScreen() {
         )}
       </ScrollView>
 
-      {/* Comments Modal - Only for published events */}
+      {/* Full Screen Image Viewer Modal */}
+      <Modal
+        visible={showImageViewer}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseImageViewer}
+      >
+        <View style={styles.imageViewerContainer}>
+          <TouchableOpacity
+            style={styles.closeImageButton}
+            onPress={handleCloseImageViewer}
+          >
+            <Ionicons name="close-circle" size={40} color="#fff" />
+          </TouchableOpacity>
+          
+          <Animated.View style={{ transform: [{ scale: imageScale }] }}>
+            <Image
+              source={{ uri: media.uri }}
+              style={styles.fullScreenImage}
+              resizeMode="contain"
+            />
+          </Animated.View>
+
+          <View style={styles.imageViewerInfo}>
+            <Text style={styles.imageViewerText}>{event.name}</Text>
+            <Text style={styles.imageViewerSubtext}>Tap anywhere to close</Text>
+          </View>
+        </View>
+      </Modal>
+
       {!isDraft && (
         <Modal
           visible={showComments}
@@ -634,7 +684,6 @@ export default function EventDetailsScreen() {
         </Modal>
       )}
 
-      {/* Options Menu Modal */}
       <Modal
         visible={showOptionsMenu}
         transparent={true}
@@ -697,7 +746,6 @@ export default function EventDetailsScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Status Change Modal */}
       <Modal
         visible={showStatusMenu}
         transparent={true}
@@ -818,10 +866,19 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     overflow: 'hidden',
     backgroundColor: '#f0f0f0',
+    position: 'relative',
   },
   eventMedia: {
     width: "100%",
     height: "100%",
+  },
+  expandIconContainer: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    padding: 8,
   },
   eventDetails: {},
   title: {
@@ -1112,5 +1169,44 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_400Regular",
     color: "#666",
     marginTop: 2,
+  },
+  // Full Screen Image Viewer Styles
+  imageViewerContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.95)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeImageButton: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+  },
+  fullScreenImage: {
+    width: width,
+    height: height * 0.8,
+  },
+  imageViewerInfo: {
+    position: "absolute",
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  imageViewerText: {
+    color: "#fff",
+    fontSize: 18,
+    fontFamily: "Poppins_600SemiBold",
+    textAlign: "center",
+    marginBottom: 5,
+  },
+  imageViewerSubtext: {
+    color: "#ccc",
+    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+    textAlign: "center",
   },
 });
