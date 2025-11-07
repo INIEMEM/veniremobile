@@ -221,13 +221,23 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
   };
 
   const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-  };
+    const utcDate = new Date(dateString);
+   // Force to UTC components (no timezone offset)
+   const localDate = new Date(
+     utcDate.getUTCFullYear(),
+     utcDate.getUTCMonth(),
+     utcDate.getUTCDate(),
+     utcDate.getUTCHours(),
+     utcDate.getUTCMinutes()
+   );
+ 
+   return localDate.toLocaleTimeString("en-US", {
+     hour: "numeric",
+     minute: "2-digit",
+     hour12: true,
+   });
+   };
+ 
 
   // Helper function to get event media (video or image)
   const getEventMedia = (event) => {
@@ -467,7 +477,7 @@ export default function EventsScreen({ isExploreMode = false, searchQuery = "" }
                 {/* {console.log("formated date", formatDate(section.events[0].start))}
                  */}
 
-                 {console.log("Formatted time", formatTime(section.events[0].start))}
+                 {/* {console.log("Formatted time", formatTime(section.events[0].start))} */}
               {section.scrollDirection === 'horizontal' ? (
                 <ScrollView
                   horizontal
