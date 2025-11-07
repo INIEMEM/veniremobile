@@ -431,17 +431,17 @@ export default function ExploreEvents({
       }
     >
       {events.map((event) => {
-        if (!animations[event._id]) {
-          animations[event._id] = new Animated.Value(1);
+        if (!animations[event?._id]) {
+          animations[event?._id] = new Animated.Value(1);
         }
 
         const media = getEventMedia(event);
         const eventOwnerId = event.userId?._id || event.user?._id;
-        const isOwnEvent = currentUserId._id && eventOwnerId === currentUserId._id;
+        const isOwnEvent = currentUserId?._id && eventOwnerId === currentUserId?._id;
 
         
         return (
-          <View style={styles.eventCard} key={event._id}>
+          <View style={styles.eventCard} key={event?._id}>
             {/* Draft Badge */}
             {isDraftMode && (
               <View style={styles.draftBadge}>

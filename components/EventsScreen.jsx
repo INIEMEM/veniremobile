@@ -118,7 +118,12 @@ export default function EventsScreen({
       const url = `${baseUrl}?limit=10&page=${page}`;
       
       const config = isGuest === "true" || !token 
-        ? {} 
+        ? {
+          headers:{
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        } 
         : { headers: { Authorization: `Bearer ${token}` } };
 
       const response = await api.get(url, config);
