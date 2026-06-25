@@ -5,13 +5,13 @@
     "version": "1.0.0",
     "scheme": "veniremobile",
     "orientation": "portrait",
-    "icon": "./assets/splash.png",
+    "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#5A31F4"
     },
     "ios": {
       "supportsTablet": true,
@@ -19,8 +19,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#5A31F4"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.iniemem.veniremobile"
@@ -32,9 +32,13 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
-      "expo-secure-store",
-      
-      
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Venire to use your camera to scan event tickets."
+        }
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "router": {},

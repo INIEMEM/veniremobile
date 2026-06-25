@@ -206,28 +206,43 @@ export default function CreateEvent() {
   const pickMedia = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ['images', 'videos'],
         allowsMultipleSelection: true,
         quality: 0.8,
         selectionLimit: 5,
         videoMaxDuration: 60,
         videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+        preferredAssetRepresentationMode:
+          ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+        exif: false,
       });
 
       if (!result.canceled && result.assets) {
-        const newMedia = result.assets.map((asset) => {
-          let mimeType = 'application/octet-stream';
-          if (asset.type === 'video') {
+        const readableAssets = result.assets.filter((asset) => asset?.uri);
+
+        if (readableAssets.length === 0) {
+          Toast.show({
+            type: 'error',
+            text1: 'Unable to read media',
+            text2: 'Please choose another photo or video and try again',
+          });
+          return;
+        }
+
+        const newMedia = readableAssets.map((asset) => {
+          const mediaType = asset.type === 'video' ? 'video' : 'image';
+          let mimeType = asset.mimeType || 'application/octet-stream';
+          if (!asset.mimeType && mediaType === 'video') {
             mimeType = asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
-          } else {
+          } else if (!asset.mimeType) {
             mimeType = 'image/jpeg';
           }
 
           return {
             uri: asset.uri,
-            type: asset.type === 'video' ? 'video' : 'image',
+            type: mediaType,
             mimeType: mimeType,
-            name: asset.fileName || `event_${asset.type}_${Date.now()}.${asset.type === 'video' ? 'mp4' : 'jpg'}`,
+            name: asset.fileName || `event_${mediaType}_${Date.now()}.${mediaType === 'video' ? 'mp4' : 'jpg'}`,
             fileSize: asset.fileSize,
           };
         });
@@ -246,10 +261,15 @@ export default function CreateEvent() {
       }
     } catch (error) {
       console.error('Error picking media:', error);
+      const isRepresentationError =
+        error?.message?.includes('Cannot load representation') ||
+        error?.message?.includes('Failed to read picked image');
       Toast.show({
         type: 'error',
-        text1: 'Error',
-        text2: 'Failed to pick media',
+        text1: isRepresentationError ? 'Unable to read this image' : 'Error',
+        text2: isRepresentationError
+          ? 'Please choose another photo, or save it again in Photos and retry'
+          : 'Failed to pick media',
       });
     }
   };

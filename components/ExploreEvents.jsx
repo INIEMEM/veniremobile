@@ -3,22 +3,39 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Image,
   TouchableOpacity,
   Animated,
   ActivityIndicator,
   RefreshControl,
+  FlatList,
+  ScrollView,
 } from "react-native";
-import { Dimensions } from "react-native";
+import { Dimensions, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { truncateText } from "../utils/truncateText";
 import api from "../utils/axiosInstance";
+import { Video, Audio } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
-import { Video } from "expo-av";
 import { useToast } from '../context/ToastContext';
+import { Modal } from 'react-native';
+import ReelsScreen from './ReelsScreen';
+import MOCK_REELS from '../constants/reelsMockData';
+
+// Global Audio config to ensure sound plays even when device is on silent mode
+try {
+  Audio.setAudioModeAsync({
+    playsInSilentModeIOS: true,
+    allowsRecordingIOS: false,
+    staysActiveInBackground: false,
+    shouldDuckAndroid: true,
+    playThroughEarpieceAndroid: false,
+  });
+} catch (e) {
+  console.log("Audio config error:", e);
+}
 
 const { width, height } = Dimensions.get("window");
 
@@ -26,7 +43,13 @@ export default function ExploreEvents({
   userId = null, 
   events: propEvents = null,
   isExploreMode = false,
-  isDraftMode = false // New prop to indicate if we're showing drafts
+  isDraftMode = false, // New prop to indicate if we're showing drafts
+  embedded = false,
+  onEndReached = null,
+  loadingMore = false,
+  ListHeaderComponent = null,
+  ListFooterComponent = null,
+  contentContainerStyle = null
 }) {
   const router = useRouter();
   const [events, setEvents] = useState([]);
@@ -34,7 +57,23 @@ export default function ExploreEvents({
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
   const animations = useRef({}).current;
+  const activeIndexes = useRef({}).current
   const toast = useToast();
+  const [fullScreenMedia, setFullScreenMedia] = useState(null); // { media: array, initialIndex: number }
+  const [loadingInterest, setLoadingInterest] = useState({});
+
+  // Ticket modal state (for buying tickets directly from the feed)
+  const [ticketModalEvent, setTicketModalEvent] = useState(null);
+  const [ticketQuantities, setTicketQuantities] = useState({});
+  const [purchasingTickets, setPurchasingTickets] = useState(false);
+  const getEventKey = (event, index) => `${event?._id || "event"}-${index}`;
+  const isRenderableEvent = (event) => event && typeof event === "object" && event._id;
+  const safeText = (value, fallback = "") => {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === "string" || typeof value === "number") return String(value);
+    return fallback;
+  };
+
   useEffect(() => {
     const getCurrentUserId = async () => {
       try {
@@ -58,60 +97,82 @@ export default function ExploreEvents({
 
   const processEvents = async (eventsData) => {
     try {
-      setLoading(true);
+      const shouldShowLoader = events.length === 0;
+      if (shouldShowLoader) {
+        setLoading(true);
+      }
       const token = await AsyncStorage.getItem("token");
       const isGuest = await AsyncStorage.getItem("isGuest");
+      const existingEventsById = new Map(
+        events.map((event) => [event._id, event])
+      );
       
       // Skip comment/like fetching for drafts
       if (isDraftMode) {
-        setEvents(eventsData.map(event => ({
-          ...event,
-          totalComments: 0,
-          totalLikes: 0,
-        })));
+        setEvents(eventsData.map(event => {
+          const existingEvent = existingEventsById.get(event._id);
+          return {
+            ...event,
+            totalComments:
+              existingEvent?.totalComments ??
+              event.totalComments ??
+              event.commentCount ??
+              event.comments?.length ??
+              0,
+            totalLikes:
+              existingEvent?.totalLikes ??
+              event.totalLikes ??
+              event.likes?.length ??
+              event.likeCount ??
+              0,
+          };
+        }));
         setLoading(false);
         return;
       }
       
       if (isGuest === "true" || !token) {
-        setEvents(eventsData.map(event => ({
-          ...event,
-          totalComments: 0,
-          totalLikes: event.likes?.length || event.likeCount || 0,
-        })));
+        setEvents(eventsData.map(event => {
+          const existingEvent = existingEventsById.get(event._id);
+          return {
+            ...event,
+            totalComments:
+              existingEvent?.totalComments ??
+              event.totalComments ??
+              event.commentCount ??
+              event.comments?.length ??
+              0,
+            totalLikes:
+              existingEvent?.totalLikes ??
+              event.totalLikes ??
+              event.likes?.length ??
+              event.likeCount ??
+              0,
+          };
+        }));
         setLoading(false);
         return;
       }
       
-      const eventsWithCounts = await Promise.all(
-        eventsData.map(async (event) => {
-          try {
-            const commentsResponse = await api.get(
-              `/event/comment?eventId=${event._id}`,
-              { 
-                headers: { Authorization: `Bearer ${token}` },
-                requiresAuth: true
-              }
-            );
-            
-            const commentCount = commentsResponse.data?.count || 0;
-            const likeCount = event.likes?.length || event.likeCount || 0;
-            
-            return {
-              ...event,
-              totalComments: commentCount,
-              totalLikes: likeCount,
-            };
-          } catch (error) {
-            console.error(`Error fetching counts for event ${event._id}:`, error);
-            return {
-              ...event,
-              totalComments: 0,
-              totalLikes: event.likes?.length || event.likeCount || 0,
-            };
-          }
-        })
-      );
+      const eventsWithCounts = eventsData.map((event) => {
+          const existingEvent = existingEventsById.get(event._id);
+
+          return {
+            ...event,
+            totalComments:
+              existingEvent?.totalComments ??
+              event.totalComments ??
+              event.commentCount ??
+              event.comments?.length ??
+              0,
+            totalLikes:
+              existingEvent?.totalLikes ??
+              event.totalLikes ??
+              event.likes?.length ??
+              event.likeCount ??
+              0,
+          };
+        });
       
       setEvents(eventsWithCounts);
     } catch (error) {
@@ -303,53 +364,111 @@ export default function ExploreEvents({
   };
 
   const handleInterested = async (eventId, isInterested) => {
+    if (loadingInterest[eventId]) return;
+
     if (isDraftMode) {
-      Toast.show({
-        type: "info",
-        text1: "Cannot mark interest in draft events",
-      });
+      Toast.show({ type: "info", text1: "Cannot mark interest in draft events" });
       return;
     }
 
     try {
+      setLoadingInterest(prev => ({ ...prev, [eventId]: true }));
       const token = await AsyncStorage.getItem("token");
       const isGuest = await AsyncStorage.getItem("isGuest");
-      
+
       if (isGuest === "true") {
-        Toast.show({
-          type: "info",
-          text1: "Login Required",
-          text2: "Please login to show interest in events",
-        });
+        Toast.show({ type: "info", text1: "Login Required", text2: "Please login to show interest in events" });
         return;
       }
 
-      const endpoint = isInterested ? "/event/interest-cancel" : "/event/interest";
-  
-      await api.post(
-        endpoint,
-        { eventId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-  
-      setEvents((prev) =>
-        prev.map((event) =>
-          event._id === eventId
-            ? { ...event, hasInterested: !isInterested }
-            : event
-        )
-      );
-  
-      // Toast.show({
-      //   type: "success",
-      //   text1: isInterested
-      //     ? "Interest cancelled"
-      //     : "Marked as interested",
-      // });
-      toast.success(isInterested ? "Interest cancelled" : "Marked as interested");
+      if (isInterested) {
+        // Cancelling — call cancel endpoint directly
+        await api.post("/event/interest-cancel", { eventId }, { headers: { Authorization: `Bearer ${token}` } });
+        setEvents(prev => prev.map(ev => ev._id === eventId ? { ...ev, hasInterested: false } : ev));
+        toast.success("Interest cancelled");
+        return;
+      }
+
+      // Always fetch full event details to get the tickets array
+      // (the list API doesn't return tickets, but the backend ALWAYS requires a non-empty tickets array)
+      const res = await api.get(`/event/key?key=_id&value=${eventId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const fullEvent = Array.isArray(res.data?.data) ? res.data.data[0] : res.data?.data;
+
+      if (!fullEvent) {
+        toast.error("Could not load event details. Please try again.");
+        return;
+      }
+
+      // ALWAYS open ticket selection modal with full ticket data, even if tickets is empty.
+      setTicketModalEvent(fullEvent);
+      setTicketQuantities({});
     } catch (error) {
-      console.error("Error marking interestss:", error.response?.data.error );
-      toast.error(`${error.response?.data.error}`);
+      console.error("Error marking interest:", error.response?.data);
+      toast.error(error.response?.data?.error || error.response?.data?.message || "Could not update interest");
+    } finally {
+      setLoadingInterest(prev => ({ ...prev, [eventId]: false }));
+    }
+  };
+
+  const updateTicketQty = (ticketId, delta) => {
+    setTicketQuantities(prev => {
+      const current = prev[ticketId] || 0;
+      const next = current + delta;
+      if (next < 0) return prev;
+      return { ...prev, [ticketId]: next };
+    });
+  };
+
+  const getTicketTotal = () => {
+    let total = 0;
+    const ticketsSource = ticketModalEvent?.tickets?.length > 0 
+      ? ticketModalEvent.tickets 
+      : [{
+          _id: ticketModalEvent?._id || "default",
+          price: ticketModalEvent?.ticketAmount || 0,
+        }];
+
+    Object.entries(ticketQuantities).forEach(([id, qty]) => {
+      const t = ticketsSource.find(x => x._id === id);
+      if (t && qty > 0) total += (t.price || 0) * qty;
+    });
+    return total;
+  };
+
+  const handlePurchaseFromFeed = async () => {
+    const totalQty = Object.values(ticketQuantities).reduce((a, b) => a + b, 0);
+    if (totalQty === 0) {
+      Toast.show({ type: "error", text1: "No tickets selected", text2: "Please select at least one ticket." });
+      return;
+    }
+    setPurchasingTickets(true);
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const payload = {
+        eventId: ticketModalEvent._id,
+        comment: "",
+        tickets: Object.entries(ticketQuantities)
+          .filter(([_, qty]) => qty > 0)
+          .map(([id, qty]) => ({ id, quantity: qty }))
+      };
+      const res = await api.post("/event/interest", payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data?.success) {
+        toast.success("Tickets purchased successfully! 🎟️");
+        setEvents(prev =>
+          prev.map(ev =>
+            ev._id === ticketModalEvent._id ? { ...ev, hasInterested: true } : ev
+          )
+        );
+        setTicketModalEvent(null);
+        setTicketQuantities({});
+      }
+    } catch (error) {
+      console.error("Purchase error:", error.response?.data);
+      Toast.show({ type: "error", text1: "Purchase Failed", text2: error.response?.data?.message || error.response?.data?.error || "Please try again" });
+    } finally {
+      setPurchasingTickets(false);
     }
   };
 
@@ -420,198 +539,892 @@ export default function ExploreEvents({
     );
   }
 
-  
+  const renderEventCard = (event) => {
+    if (!animations[event?._id]) {
+      animations[event?._id] = new Animated.Value(1);
+    }
 
-  return (
-    <ScrollView
-      style={styles.container}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {events.map((event) => {
-        if (!animations[event?._id]) {
-          animations[event?._id] = new Animated.Value(1);
-        }
+    const media = getEventMedia(event);
+    const eventOwnerId = event.userId?._id || event.userId || event.user?._id || event.user;
+    const isOwnEvent = currentUserId?._id && String(eventOwnerId) === String(currentUserId._id);
+    const allMedia = []
 
-        const media = getEventMedia(event);
-        const eventOwnerId = event.userId?._id || event.user?._id;
-        const isOwnEvent = currentUserId?._id && eventOwnerId === currentUserId?._id;
+    if (event.videos && event.videos.length > 0) {
+      event.videos.forEach(uri => 
+        allMedia.push({ type: "video", uri })
+      )
+    }
 
-        
-        return (
-          <View style={styles.eventCard} key={event?._id}>
-            {/* Draft Badge */}
-            {isDraftMode && (
-              <View style={styles.draftBadge}>
-                <Ionicons name="document-text-outline" size={14} color="#FAB843" />
-                <Text style={styles.draftBadgeText}>DRAFT</Text>
-              </View>
-            )}
+    if (event.images && event.images.length > 0) {
+      event.images.forEach(uri => 
+        allMedia.push({ type: "image", uri })
+      )
+    }
 
-            <View style={styles.hostRow}>
-              <Image
-                source={{
-                  uri:
-                    event.userId?.profile_picture || event.user?.profile_picture  ||
-                    "https://cdn-icons-png.flaticon.com/512/149/149071.png",
-                }}
-                style={styles.hostAvatar}
-              />
-              <Text style={styles.host}>
-                {event.userId?.firstname || event.user?.firstname || "Unknown"} {event.userId?.lastname || event.user?.lastname || ""}
-              </Text>
+    if (allMedia.length === 0) {
+      allMedia.push({
+        type: "image",
+        uri: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800"
+      })
+    }
+
+    const mediaCount = allMedia.length
+
+    if (activeIndexes[event._id] === undefined) {
+      activeIndexes[event._id] = 0
+    }
+
+    return (
+      <View style={styles.eventCard}>
+        {/* Draft Badge */}
+        {isDraftMode && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <View style={styles.draftBadge}>
+              <Ionicons name="document-text-outline" size={14} color="#FAB843" />
+              <Text style={styles.draftBadgeText}>DRAFT</Text>
             </View>
+          </View>
+        )}
 
-            <Text style={[styles.host, { marginTop: 20 }]}>Event Description</Text>
-            <TouchableOpacity
-              onPress={() => handleEventPress(event._id)}
-            >
-              <Text style={styles.description}>
-                {truncateText(event.description, 300, "long")}
+        <TouchableOpacity 
+          style={styles.cardHeader}
+          activeOpacity={0.7}
+          onPress={() => handleEventPress(event._id)}
+        >
+          <View style={styles.hostLeft}>
+            <Image
+              source={{ uri: event.userId?.profile_picture || 
+                event.user?.profile_picture ||
+                "https://cdn-icons-png.flaticon.com/512/149/149071.png" }}
+              style={styles.hostAvatar}
+            />
+            <View style={styles.hostInfo}>
+              <Text style={styles.hostName}>
+                {event.userId?.firstname || event.user?.firstname || "Unknown"}{" "}
+                {event.userId?.lastname || event.user?.lastname || ""}
               </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.flierContainer}
-              onPress={() => handleEventPress(event._id)}
-              activeOpacity={0.9}
-            >
-              {media.type === 'video' ? (
-                <Video
-                  source={{ uri: media.uri }}
-                  style={styles.flier}
-                  useNativeControls
-                  resizeMode="contain"
-                  isLooping
-                  shouldPlay={false}
-                />
-              ) : (
-                <Image 
-                  source={{ uri: media.uri }} 
-                  style={styles.flier}
-                  resizeMode="cover"
-                />
-              )}
-            </TouchableOpacity>
-
-            <Text style={styles.eventTitle}>{event.name}</Text>
-            <Text style={styles.caption}>{event.description}</Text>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.dateTime}>
-                {formatDate(event.start)} • {formatTime(event.start)}
-              </Text>
-            </View>
-
-            <View style={[styles.infoRow2]}>
-              <View style={styles.mapBox}>
-                <Text style={styles.mapText}>Map</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.mapText}>{event.address}</Text>
-                <Text style={styles.mapText}>
-                  Lat: {event.lat}°, Long: {event.long}°
+              <View style={styles.hostMeta}>
+                <Ionicons name="location-outline" size={11} color="#999" />
+                <Text style={styles.hostLocation} numberOfLines={1}>
+                  {safeText(event.address, "Location TBA")}
                 </Text>
               </View>
             </View>
-            { }
-            <View style={styles.priceRow}>
-            {!isDraftMode && !isOwnEvent && (
-                <TouchableOpacity
-                  style={[
-                    styles.interestedBtn,
-                    event.hasInterested && { backgroundColor: "#ccc" }
-                  ]}
-                  onPress={() => handleInterested(event._id, event.hasInterested)}
-                >
-                  <Text style={styles.interestedText}>
-                    {event.hasInterested ? "Cancel Interest" : "Interested"}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              
-              {/* For drafts, show "View Draft" button */}
-              {isDraftMode && (
-                <TouchableOpacity
-                  style={[styles.interestedBtn, styles.draftBtn]}
-                  onPress={() => router.replace(`/(tabs)/Events/${event._id}?isDraft=true`)}
-                >
-                  <Text style={styles.interestedText}>View Draft</Text>
-                </TouchableOpacity>
-              )}
+          </View>
 
-
-              <Text style={styles.price}>
-                {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
-              </Text>
-            </View>
-
-            {/* Only show stats for non-draft events */}
-            {!isDraftMode && (
-              <View style={styles.statsRow}>
-                <TouchableOpacity
-                  onPress={() => handleLike(event._id, event.hasLiked)}
-                >
-                  <Animated.View
-                    style={{
-                      transform: [{ scale: animations[event._id] }],
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <Ionicons
-                      name={event.hasLiked ? "heart" : "heart-outline"}
-                      size={24}
-                      color={event.hasLiked ? "red" : "#555"}
-                    />
-                    <Text style={styles.likesText}>{event.totalLikes || 0}</Text>
-                  </Animated.View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.statItem}
-                  onPress={() => {
-                    // console.log("Navigating to comments for event:", event._id);
-                    router.push(`/(tabs)/Events/${event._id}?tab=comments`)
-                  }}
-                >
-                  <Ionicons name="chatbubble-outline" size={20} color="#555" />
-                  <Text style={styles.statText}>{event.totalComments || 0}</Text>
-                </TouchableOpacity>
-
-                <View style={styles.statItem}>
-                  <Ionicons name="eye-outline" size={20} color="#555" />
-                  <Text style={styles.statText}>{event.hasViewed ? "✓" : ""}</Text>
-                </View>
-
-                <TouchableOpacity
-                  onPress={() => handleBookmark(event._id, event.hasBookmarked)}
-                >
-                  <Ionicons
-                    name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
-                    size={20}
-                    color={event.hasBookmarked ? "#5A31F4" : "#555"}
-                  />
-                </TouchableOpacity>
-
-                <TouchableOpacity>
-                  <Ionicons name="share-social-outline" size={20} color="#555" />
-                </TouchableOpacity>
+          <View style={styles.headerRight}>
+            {event.userStatus === "ongoing" && (
+              <View style={styles.liveBadge}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
+              </View>
+            )}
+            {event.isTicket && (
+              <View style={styles.priceBadge}>
+                <Text style={styles.priceBadgeText}>
+                  ₦{event.ticketAmount?.toLocaleString()}
+                </Text>
+              </View>
+            )}
+            {!event.isTicket && (
+              <View style={[styles.priceBadge, styles.freeBadge]}>
+                <Text style={[styles.priceBadgeText, styles.freeText]}>FREE</Text>
               </View>
             )}
           </View>
-        );
-      })}
-    </ScrollView>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => handleEventPress(event._id)}
+          style={styles.descriptionContainer}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.eventNameInline}>
+            {safeText(event.name, "Untitled event")}
+          </Text>
+          <Text style={styles.description}>
+            {truncateText(safeText(event.description), 120, "long")}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.carouselContainer}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(e) => {
+              const index = Math.round(
+                e.nativeEvent.contentOffset.x / width
+              )
+              activeIndexes[event._id] = index
+              setEvents(prev => [...prev])
+            }}
+            style={styles.carouselScroll}
+          >
+            {allMedia.map((item, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={styles.carouselSlide}
+                onPress={() => setFullScreenMedia({ media: allMedia, initialIndex: idx })}
+                activeOpacity={0.9}
+              >
+                {item.type === "video" ? (
+                  <Video
+                    source={{ uri: item.uri }}
+                    style={styles.carouselMedia}
+                    useNativeControls
+                    resizeMode="cover"
+                    isLooping
+                    shouldPlay={false}
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={styles.carouselMedia}
+                    resizeMode="cover"
+                  />
+                )}
+
+                {/* Media index counter — top right */}
+                {mediaCount > 1 && (
+                  <View style={styles.mediaCounter}>
+                    <Ionicons 
+                      name="images-outline" 
+                      size={11} 
+                      color="#FFFFFF" 
+                    />
+                    <Text style={styles.mediaCounterText}>
+                      {idx + 1}/{mediaCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Dot indicators — only shown if more than 1 */}
+          {mediaCount > 1 && (
+            <View style={styles.dotsContainer}>
+              {allMedia.map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.dot,
+                    activeIndexes[event._id] === idx 
+                      && styles.dotActive
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+
+          {/* Left/Right swipe hint — only on first render
+              for events with multiple media */}
+          {mediaCount > 1 && (
+            <View style={styles.swipeHint} pointerEvents="none">
+              <View style={styles.swipeHintLeft}>
+                <Ionicons 
+                  name="chevron-back" 
+                  size={20} 
+                  color="rgba(255,255,255,0.6)" 
+                />
+              </View>
+              <View style={styles.swipeHintRight}>
+                <Ionicons 
+                  name="chevron-forward" 
+                  size={20} 
+                  color="rgba(255,255,255,0.6)" 
+                />
+              </View>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.metaStrip}>
+          <View style={styles.metaItem}>
+            <Ionicons name="calendar-outline" size={13} color="#5A31F4" />
+            <Text style={styles.metaText}>
+              {formatDate(event.start)}
+            </Text>
+          </View>
+          <View style={styles.metaDot} />
+          <View style={styles.metaItem}>
+            <Ionicons name="time-outline" size={13} color="#5A31F4" />
+            <Text style={styles.metaText}>
+              {formatTime(event.start)}
+            </Text>
+          </View>
+          <View style={styles.metaDot} />
+          <View style={styles.metaItem}>
+            <Ionicons name="people-outline" size={13} color="#5A31F4" />
+            <Text style={styles.metaText}>
+              {safeText(event.capacity, "Open")} capacity
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.actionBar}>
+          <View style={styles.actionLeft}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => handleLike(event._id, event.hasLiked)}
+            >
+              <Animated.View style={{ 
+                transform: [{ scale: animations[event._id] }] 
+              }}>
+                <Ionicons
+                  name={event.hasLiked ? "heart" : "heart-outline"}
+                  size={22}
+                  color={event.hasLiked ? "#FF3B30" : "#555"}
+                />
+              </Animated.View>
+              <Text style={[
+                styles.actionCount,
+                event.hasLiked && { color: "#FF3B30" }
+              ]}>
+                {event.totalLikes || 0}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => router.push(
+                `/(tabs)/Events/${event._id}?tab=comments`
+              )}
+            >
+              <Ionicons name="chatbubble-outline" size={20} color="#555" />
+              <Text style={styles.actionCount}>
+                {event.totalComments || 0}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionBtn}>
+              <Ionicons name="share-social-outline" size={20} color="#555" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.actionRight}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => handleBookmark(event._id, event.hasBookmarked)}
+            >
+              <Ionicons
+                name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+                size={20}
+                color={event.hasBookmarked ? "#5A31F4" : "#555"}
+              />
+            </TouchableOpacity>
+
+            {!isDraftMode && !isOwnEvent && (
+              <TouchableOpacity
+                style={[
+                  styles.interestedBtn,
+                  event.hasInterested && styles.interestedBtnActive
+                ]}
+                onPress={() => handleInterested(
+                  event._id, event.hasInterested
+                )}
+              >
+                <Ionicons
+                  name={event.hasInterested 
+                    ? "star" : "star-outline"}
+                  size={14}
+                  color={event.hasInterested ? "#FAB843" : "#5A31F4"}
+                />
+                <Text style={[
+                  styles.interestedText,
+                  event.hasInterested && styles.interestedTextActive
+                ]}>
+                  {event.hasInterested ? "Going" : "Interested"}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {isDraftMode && (
+              <TouchableOpacity
+                style={styles.draftBtn}
+                onPress={() => router.replace(
+                  `/(tabs)/Events/${event._id}?isDraft=true`
+                )}
+              >
+                <Text style={styles.draftBtnText}>View Draft</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderSponsoredCard = (event) => {
+    if (!animations[event?._id]) {
+      animations[event?._id] = new Animated.Value(1);
+    }
+
+    const media = getEventMedia(event);
+    const eventOwnerId = event.userId?._id || event.userId || event.user?._id || event.user;
+    const isOwnEvent = currentUserId?._id && String(eventOwnerId) === String(currentUserId._id);
+    const allMedia = []
+
+    if (event.videos && event.videos.length > 0) {
+      event.videos.forEach(uri => 
+        allMedia.push({ type: "video", uri })
+      )
+    }
+
+    if (event.images && event.images.length > 0) {
+      event.images.forEach(uri => 
+        allMedia.push({ type: "image", uri })
+      )
+    }
+
+    if (allMedia.length === 0) {
+      allMedia.push({
+        type: "image",
+        uri: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800"
+      })
+    }
+
+    const mediaCount = allMedia.length
+
+    if (activeIndexes[event._id] === undefined) {
+      activeIndexes[event._id] = 0
+    }
+
+    return (
+      <View style={styles.sponsoredCard}>
+
+        {/* Sponsored Label Bar */}
+        <View style={styles.sponsoredLabelBar}>
+          <View style={styles.sponsoredLabelLeft}>
+            <Ionicons name="flash" size={13} color="#F59E0B" />
+            <Text style={styles.sponsoredLabelText}>Sponsored</Text>
+          </View>
+          <Text style={styles.whyAdText}>Why this ad?</Text>
+        </View>
+
+        {/* Host Row — same structure as regular card */}
+        <TouchableOpacity
+          style={styles.cardHeader}
+          activeOpacity={0.7}
+          onPress={() => handleEventPress(event._id)}
+        >
+          <View style={styles.hostLeft}>
+            <Image
+              source={{
+                uri:
+                  event.userId?.profile_picture ||
+                  event.user?.profile_picture ||
+                  "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+              }}
+              style={styles.hostAvatar}
+            />
+            <View style={styles.hostInfo}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={styles.hostName}>
+                  {event.userId?.firstname ||
+                    event.user?.firstname ||
+                    "Unknown"}{" "}
+                  {event.userId?.lastname || event.user?.lastname || ""}
+                </Text>
+                <View style={styles.promotedBadge}>
+                  <Text style={styles.promotedBadgeText}>✦ Promoted</Text>
+                </View>
+              </View>
+              <View style={styles.hostMeta}>
+                <Ionicons name="location-outline" size={11} color="#999" />
+                <Text style={styles.hostLocation} numberOfLines={1}>
+                  {safeText(event.address, "Location TBA")}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.headerRight}>
+            {event.isTicket ? (
+              <View style={styles.priceBadge}>
+                <Text style={styles.priceBadgeText}>
+                  ₦{event.ticketAmount?.toLocaleString()}
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.priceBadge, styles.freeBadge]}>
+                <Text style={[styles.priceBadgeText, styles.freeText]}>
+                  FREE
+                </Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        {/* Description */}
+        <TouchableOpacity
+          onPress={() => handleEventPress(event._id)}
+          style={styles.descriptionContainer}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.eventNameInline}>{safeText(event.name, "Untitled event")}</Text>
+          <Text style={styles.description}>
+            {truncateText(safeText(event.description), 120, "long")}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Media */}
+        <View style={styles.carouselContainer}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(e) => {
+              const index = Math.round(
+                e.nativeEvent.contentOffset.x / width
+              )
+              activeIndexes[event._id] = index
+              setEvents(prev => [...prev])
+            }}
+            style={styles.carouselScroll}
+          >
+            {allMedia.map((item, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={styles.carouselSlide}
+                onPress={() => setFullScreenMedia({ media: allMedia, initialIndex: idx })}
+                activeOpacity={0.9}
+              >
+                {item.type === "video" ? (
+                  <Video
+                    source={{ uri: item.uri }}
+                    style={styles.carouselMedia}
+                    useNativeControls
+                    resizeMode="cover"
+                    isLooping
+                    shouldPlay={false}
+                  />
+                ) : (
+                  <>
+                    <Image
+                      source={{ uri: item.uri }}
+                      style={styles.carouselMedia}
+                      resizeMode="cover"
+                    />
+                    <View 
+                      style={styles.sponsoredMediaOverlay} 
+                      pointerEvents="none" 
+                    />
+                  </>
+                )}
+
+                {/* Media index counter — top right */}
+                {mediaCount > 1 && (
+                  <View style={styles.mediaCounter}>
+                    <Ionicons 
+                      name="images-outline" 
+                      size={11} 
+                      color="#FFFFFF" 
+                    />
+                    <Text style={styles.mediaCounterText}>
+                      {idx + 1}/{mediaCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Dot indicators — only shown if more than 1 */}
+          {mediaCount > 1 && (
+            <View style={styles.dotsContainer}>
+              {allMedia.map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.dot,
+                    activeIndexes[event._id] === idx 
+                      && styles.dotActive
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+
+          {/* Left/Right swipe hint — only on first render
+              for events with multiple media */}
+          {mediaCount > 1 && (
+            <View style={styles.swipeHint} pointerEvents="none">
+              <View style={styles.swipeHintLeft}>
+                <Ionicons 
+                  name="chevron-back" 
+                  size={20} 
+                  color="rgba(255,255,255,0.6)" 
+                />
+              </View>
+              <View style={styles.swipeHintRight}>
+                <Ionicons 
+                  name="chevron-forward" 
+                  size={20} 
+                  color="rgba(255,255,255,0.6)" 
+                />
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Meta Strip */}
+        <View style={styles.sponsoredMetaStrip}>
+          <View style={styles.metaItem}>
+            <Ionicons name="calendar-outline" size={13} color="#D97706" />
+            <Text style={styles.sponsoredMetaText}>
+              {formatDate(event.start)}
+            </Text>
+          </View>
+          <View style={styles.metaDot} />
+          <View style={styles.metaItem}>
+            <Ionicons name="time-outline" size={13} color="#D97706" />
+            <Text style={styles.sponsoredMetaText}>
+              {formatTime(event.start)}
+            </Text>
+          </View>
+          <View style={styles.metaDot} />
+          <View style={styles.metaItem}>
+            <Ionicons name="people-outline" size={13} color="#D97706" />
+            <Text style={styles.sponsoredMetaText}>
+              {safeText(event.capacity, "Open")} capacity
+            </Text>
+          </View>
+        </View>
+
+        {/* CTA Row */}
+        <View style={styles.ctaRow}>
+          <View style={styles.ctaLeft}>
+            <Text style={styles.ctaEventName} numberOfLines={1}>
+              {safeText(event.name, "Untitled event")}
+            </Text>
+            {event.isTicket ? (
+              <Text style={styles.ctaPriceText}>
+                ₦{event.ticketAmount?.toLocaleString()} per ticket
+              </Text>
+            ) : (
+              <Text style={styles.ctaFreeText}>Free Entry</Text>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.ctaButton}
+            onPress={() => handleEventPress(event._id)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.ctaButtonText}>
+              {event.isTicket ? "Get Tickets" : "Learn More"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Action Bar — identical to regular card */}
+        <View style={styles.actionBar}>
+          <View style={styles.actionLeft}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => handleLike(event._id, event.hasLiked)}
+            >
+              <Animated.View
+                style={{ transform: [{ scale: animations[event._id] }] }}
+              >
+                <Ionicons
+                  name={event.hasLiked ? "heart" : "heart-outline"}
+                  size={22}
+                  color={event.hasLiked ? "#FF3B30" : "#555"}
+                />
+              </Animated.View>
+              <Text
+                style={[
+                  styles.actionCount,
+                  event.hasLiked && { color: "#FF3B30" },
+                ]}
+              >
+                {event.totalLikes || 0}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() =>
+                router.push(`/(tabs)/Events/${event._id}?tab=comments`)
+              }
+            >
+              <Ionicons name="chatbubble-outline" size={20} color="#555" />
+              <Text style={styles.actionCount}>{event.totalComments || 0}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionBtn}>
+              <Ionicons name="share-social-outline" size={20} color="#555" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.actionRight}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => handleBookmark(event._id, event.hasBookmarked)}
+            >
+              <Ionicons
+                name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+                size={20}
+                color={event.hasBookmarked ? "#5A31F4" : "#555"}
+              />
+            </TouchableOpacity>
+
+            {!isDraftMode && !isOwnEvent && (
+              <TouchableOpacity
+                style={[
+                  styles.sponsoredInterestedBtn,
+                  event.hasInterested && styles.interestedBtnActive,
+                ]}
+                onPress={() =>
+                  handleInterested(event._id, event.hasInterested)
+                }
+              >
+                <Ionicons
+                  name={event.hasInterested ? "star" : "star-outline"}
+                  size={14}
+                  color={event.hasInterested ? "#FAB843" : "#D97706"}
+                />
+                <Text
+                  style={[
+                    styles.sponsoredInterestedText,
+                    event.hasInterested && styles.interestedTextActive,
+                  ]}
+                >
+                  {event.hasInterested ? "Going" : "Interested"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+      </View>
+    );
+  };
+
+  const renderContent = () => {
+    if (embedded) {
+      return (
+        <View style={styles.embeddedContainer}>
+          {events.filter(isRenderableEvent).map((event, index) => {
+            const isSponsored = event.isSponsored === true ||
+              (event.isSponsored === undefined && index % 4 === 3)
+            return (
+              <View key={getEventKey(event, index)}>
+                {isSponsored
+                  ? renderSponsoredCard(event)
+                  : renderEventCard(event)}
+              </View>
+            )
+          })}
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={events.filter(isRenderableEvent)}
+        keyExtractor={getEventKey}
+        renderItem={({ item, index }) => {
+          const isSponsored = item.isSponsored === true ||
+            (item.isSponsored === undefined && index % 4 === 3)
+          return isSponsored
+            ? renderSponsoredCard(item)
+            : renderEventCard(item)
+        }}
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        removeClippedSubviews={Platform.OS === "android"}
+        initialNumToRender={3}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        updateCellsBatchingPeriod={80}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.6}
+        ListHeaderComponent={ListHeaderComponent}
+        ListFooterComponent={ListFooterComponent || (
+          loadingMore ? (
+            <View style={styles.loadingMoreContainer}>
+              <ActivityIndicator size="small" color="#5A31F4" />
+              <Text style={styles.loadingMoreText}>Loading more events...</Text>
+            </View>
+          ) : null
+        )}
+        contentContainerStyle={contentContainerStyle}
+      />
+    );
+  };
+
+  return (
+    <>
+      {renderContent()}
+
+
+
+        {/* Full Screen Media Viewer */}
+        <Modal
+          visible={!!fullScreenMedia}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setFullScreenMedia(null)}
+        >
+          <View style={styles.fullScreenContainer}>
+            <TouchableOpacity 
+              style={styles.fullScreenCloseBtn}
+              onPress={() => setFullScreenMedia(null)}
+            >
+              <Ionicons name="close" size={30} color="#FFF" />
+            </TouchableOpacity>
+            
+            {fullScreenMedia && (
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                contentOffset={{ x: fullScreenMedia.initialIndex * width, y: 0 }}
+                style={styles.fullScreenScroll}
+              >
+                {fullScreenMedia.media.map((item, index) => (
+                  <View key={index} style={styles.fullScreenSlide}>
+                    {item.type === "video" ? (
+                      <Video
+                        source={{ uri: item.uri }}
+                        style={styles.fullScreenMedia}
+                        useNativeControls
+                        resizeMode="contain"
+                        shouldPlay={true}
+                        isLooping
+                        isMuted={false}
+                        volume={1.0}
+                      />
+                    ) : (
+                      <Image
+                        source={{ uri: item.uri }}
+                        style={styles.fullScreenMedia}
+                        resizeMode="contain"
+                      />
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </Modal>
+
+      {/* Ticket Selection Modal — opens inline from the feed */}
+      <Modal
+        visible={!!ticketModalEvent}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => { setTicketModalEvent(null); setTicketQuantities({}); }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, maxHeight: '80%' }}>
+            {/* Handle bar */}
+            <View style={{ width: 40, height: 4, backgroundColor: '#e0e0e0', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
+
+            <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: 20, color: '#1A1A1A', marginBottom: 4 }}>
+              Select Tickets
+            </Text>
+            <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 14, color: '#666', marginBottom: 20 }} numberOfLines={1}>
+              {ticketModalEvent?.name}
+            </Text>
+
+            {(() => {
+              const ticketsToRender = ticketModalEvent?.tickets?.length > 0 
+                ? ticketModalEvent.tickets 
+                : [{
+                    _id: ticketModalEvent?._id || "default",
+                    name: ticketModalEvent?.isTicket ? "Standard Ticket" : "Free Entry",
+                    price: ticketModalEvent?.ticketAmount || 0,
+                    description: "General Admission"
+                  }];
+
+              return (
+                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
+                  {ticketsToRender.map((ticket, idx) => (
+                    <View key={ticket._id || ticket.id || idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#1A1A1A' }}>{ticket.name}</Text>
+                        <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 13, color: ticket.price > 0 ? '#5A31F4' : '#22C55E', marginTop: 2 }}>
+                          {ticket.price > 0 ? `₦${ticket.price?.toLocaleString()}` : 'Free'}
+                        </Text>
+                        {ticket.description ? (
+                          <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#999', marginTop: 2 }} numberOfLines={2}>{ticket.description}</Text>
+                        ) : null}
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <TouchableOpacity
+                          onPress={() => updateTicketQty(ticket._id, -1)}
+                          style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3EDFF', justifyContent: 'center', alignItems: 'center' }}
+                        >
+                          <Ionicons name="remove" size={18} color="#5A31F4" />
+                        </TouchableOpacity>
+                        <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 16, color: '#1A1A1A', minWidth: 20, textAlign: 'center' }}>
+                          {ticketQuantities[ticket._id] || 0}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => updateTicketQty(ticket._id, 1)}
+                          style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#5A31F4', justifyContent: 'center', alignItems: 'center' }}
+                        >
+                          <Ionicons name="add" size={18} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              );
+            })()}
+
+            {/* Total */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 16 }}>
+              <Text style={{ fontFamily: 'Poppins_500Medium', fontSize: 15, color: '#666' }}>Total</Text>
+              <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: 22, color: '#1A1A1A' }}>
+                ₦{getTicketTotal().toLocaleString()}
+              </Text>
+            </View>
+
+            {/* Action Buttons (Unconditionally Rendered) */}
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => { setTicketModalEvent(null); setTicketQuantities({}); }}
+                style={{ flex: 1, paddingVertical: 15, borderRadius: 14, borderWidth: 1.5, borderColor: '#E0E0E0', alignItems: 'center' }}
+                disabled={purchasingTickets}
+              >
+                <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#666' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handlePurchaseFromFeed}
+                style={{ flex: 2, paddingVertical: 15, borderRadius: 14, backgroundColor: '#5A31F4', alignItems: 'center', justifyContent: 'center' }}
+                disabled={purchasingTickets}
+              >
+                {purchasingTickets ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#fff' }}>Checkout</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 10,
+    flex: 1,
+    backgroundColor: "#F8F8F8",
+  },
+  embeddedContainer: {
+    backgroundColor: "#F8F8F8",
   },
   centerContainer: {
     flex: 1,
@@ -623,6 +1436,18 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontFamily: "Poppins_400Regular",
     color: "#666",
+  },
+  loadingMoreContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+    gap: 10,
+  },
+  loadingMoreText: {
+    fontFamily: "Poppins_400Regular",
+    color: "#666",
+    fontSize: 13,
   },
   emptyText: {
     marginTop: 10,
@@ -649,149 +1474,454 @@ const styles = StyleSheet.create({
     color: "#FAB843",
   },
   eventCard: {
-    marginBottom: 25,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 0,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+    paddingBottom: 0,
   },
-  host: {
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  hostLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 10,
+  },
+  hostAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#ddd",
+    borderWidth: 2,
+    borderColor: "#5A31F4",
+  },
+  hostInfo: {
+    flex: 1,
+  },
+  hostName: {
     fontFamily: "Poppins_600SemiBold",
     fontSize: 14,
-    color: "#444",
+    color: "#1A1A1A",
   },
-  roles: {
+  hostMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginTop: 1,
+  },
+  hostLocation: {
     fontFamily: "Poppins_400Regular",
-    color: "#777",
-    fontSize: 12,
+    fontSize: 11,
+    color: "#999",
+    flex: 1,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FF3B30",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FFFFFF",
+  },
+  liveText: {
+    fontFamily: "Poppins_700Bold",
+    fontSize: 9,
+    color: "#FFFFFF",
+    letterSpacing: 0.5,
+  },
+  priceBadge: {
+    backgroundColor: "#FDECCD",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#FAB843",
+  },
+  priceBadgeText: {
+    fontFamily: "Poppins_700Bold",
+    fontSize: 11,
+    color: "#B8860B",
+  },
+  freeBadge: {
+    backgroundColor: "#E6F9F0",
+    borderColor: "#22C55E",
+  },
+  freeText: {
+    color: "#15803D",
+  },
+  descriptionContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  eventNameInline: {
+    fontFamily: "Poppins_700Bold",
+    fontSize: 15,
+    color: "#1A1A1A",
+    marginBottom: 4,
   },
   description: {
     fontFamily: "Poppins_400Regular",
-    color: "#444",
-    marginVertical: 8,
-    fontSize: 14,
+    color: "#555",
+    fontSize: 13,
+    lineHeight: 20,
   },
   flierContainer: {
     width: "100%",
-    height: height * 0.45,
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#f0f0f0',
+    height: height * 0.42,
+    overflow: "hidden",
+    backgroundColor: "#f0f0f0",
+    borderRadius: 0,
   },
   flier: {
     width: "100%",
     height: "100%",
   },
-  eventTitle: {
-    fontFamily: "Poppins_600SemiBold",
-    marginTop: 8,
-    fontSize: 14,
-    color: "#666",
-  },
-  caption: {
-    fontFamily: "Poppins_400Regular",
-    color: "#777",
-    marginBottom: 10,
-    fontSize: 12,
-  },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  infoRow2: {
+  metaStrip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 20,
-    marginTop: 18,
-  },
-  dateTime: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 12,
-    color: "#666",
-  },
-  mapBox: {
-    backgroundColor: "#eee",
-    width: 60,
-    height: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 6,
-  },
-  mapText: {
-    fontSize: 12,
-    fontFamily: "Poppins_400Regular",
-    color: "#777",
-  },
-  priceRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginVertical: 10,
-  },
-  interestedBtn: {
-    backgroundColor: "#5A31F4",
-    paddingHorizontal: 15,
-    paddingVertical: 6,
-    borderRadius: 6,
-    width: width * 0.5,
-    height: 45,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  draftBtn: {
-    backgroundColor: "#FAB843",
-  },
-  interestedText: {
-    color: "#fff",
-    fontFamily: "Poppins_500Medium",
-  },
-  price: {
-    fontFamily: "Poppins_600SemiBold",
-    color: "#FAB843",
-    fontSize: 14,
-    backgroundColor: "#FDECCD",
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#FAB843",
-  },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 5,
-    alignItems: "center",
-    borderBottomColor: "#eee",
-    borderBottomWidth: 1,
-    borderTopColor: "#eee",
-    borderTopWidth: 1,
+    paddingHorizontal: 16,
     paddingVertical: 10,
+    backgroundColor: "#F8F4FF",
+    gap: 6,
   },
-  statItem: {
+  metaItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
-  statText: {
+  metaText: {
     fontFamily: "Poppins_400Regular",
-    color: "#555",
-    fontSize: 12,
+    fontSize: 11,
+    color: "#5A31F4",
   },
-  likesText: {
-    fontFamily: "Poppins_400Regular",
-    color: "#777",
-    fontSize: 12,
-    marginTop: 5,
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "#C4B5FD",
   },
-  hostRow: {
+  actionBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginBottom: 5,
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
   },
-  hostAvatar: {
-    width: 35,
-    height: 35,
-    borderRadius: 50,
-    backgroundColor: "#ddd",
-    borderWidth: 1.5,
+  actionLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  actionRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  actionCount: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 12,
+    color: "#555",
+  },
+  interestedBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#F3EDFF",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
     borderColor: "#5A31F4",
-
+  },
+  interestedBtnActive: {
+    backgroundColor: "#FDECCD",
+    borderColor: "#FAB843",
+  },
+  draftBtn: {
+    backgroundColor: "#FAB843",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+  },
+  draftBtnText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    color: "#FFFFFF",
+  },
+  interestedText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    color: "#5A31F4",
+  },
+  interestedTextActive: {
+    color: "#B8860B",
+  },
+  sponsoredCard: {
+    backgroundColor: "#FFFDF5",
+    borderLeftWidth: 3,
+    borderLeftColor: "#FAB843",
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#FDE68A",
+  },
+  sponsoredLabelBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFBEB",
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#FDE68A",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  sponsoredLabelLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    flex: 1,
+  },
+  sponsoredLabelText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    color: "#B45309",
+  },
+  whyAdText: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
+    color: "#B45309",
+    opacity: 0.7,
+  },
+  promotedBadge: {
+    backgroundColor: "#FEF3C7",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 6,
+  },
+  promotedBadgeText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 9,
+    color: "#D97706",
+  },
+  sponsoredMediaOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(250, 184, 67, 0.06)",
+  },
+  sponsoredMetaStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#FFFBEB",
+    gap: 6,
+  },
+  sponsoredMetaText: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
+    color: "#D97706",
+  },
+  ctaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#FDE68A",
+  },
+  ctaLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  ctaEventName: {
+    fontFamily: "Poppins_700Bold",
+    fontSize: 14,
+    color: "#1A1A1A",
+  },
+  ctaPriceText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 12,
+    color: "#D97706",
+    marginTop: 2,
+  },
+  ctaFreeText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 12,
+    color: "#15803D",
+    marginTop: 2,
+  },
+  ctaButton: {
+    backgroundColor: "#FAB843",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  ctaButtonText: {
+    fontFamily: "Poppins_700Bold",
+    fontSize: 12,
+    color: "#1A1A1A",
+  },
+  sponsoredInterestedBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#FFFBEB",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#FAB843",
+  },
+  sponsoredInterestedText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    color: "#D97706",
+  },
+  carouselContainer: {
+    width: "100%",
+    height: height * 0.42,
+    position: "relative",
+    backgroundColor: "#f0f0f0",
+    overflow: "hidden",
+  },
+  carouselScroll: {
+    width: "100%",
+    height: "100%",
+  },
+  carouselSlide: {
+    width: width,
+    height: height * 0.42,
+    position: "relative",
+  },
+  carouselMedia: {
+    width: "100%",
+    height: "100%",
+  },
+  mediaCounter: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  mediaCounterText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 11,
+    color: "#FFFFFF",
+  },
+  dotsContainer: {
+    position: "absolute",
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 5,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.45)",
+  },
+  dotActive: {
+    width: 18,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FFFFFF",
+  },
+  swipeHint: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 8,
+  },
+  swipeHintLeft: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  swipeHintRight: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+    justifyContent: "center",
+  },
+  fullScreenCloseBtn: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 30,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 25,
+  },
+  fullScreenScroll: {
+    flex: 1,
+  },
+  fullScreenSlide: {
+    width: width,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fullScreenMedia: {
+    width: "100%",
+    height: "100%",
   },
 });

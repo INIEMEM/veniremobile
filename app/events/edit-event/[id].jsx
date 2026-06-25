@@ -16,6 +16,7 @@ import {
   Keyboard,
   ActivityIndicator,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Toast from 'react-native-toast-message';
 import api from '../../../utils/axiosInstance';
@@ -63,6 +64,17 @@ export default function EditEvent() {
     categoryId: '',
     isOrganizer: false,
     isHost: false,
+  });
+
+  // Ticket states
+  const [tickets, setTickets] = useState([]);
+  const [showAddTicket, setShowAddTicket] = useState(false);
+  const [newTicket, setNewTicket] = useState({
+    name: '',
+    price: '',
+    capacity: '',
+    type: 'regular',
+    isInviteOnly: false,
   });
 
   // Animations
@@ -165,6 +177,11 @@ export default function EditEvent() {
         if (event.videos && event.videos.length > 0) {
           setExistingVideos(event.videos);
         }
+
+        // Set existing tickets
+        if (event.tickets && event.tickets.length > 0) {
+          setTickets(event.tickets);
+        }
       }
     } catch (error) { 
       console.error('Error fetching event details:', error);
@@ -190,28 +207,39 @@ export default function EditEvent() {
   const pickMedia = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ['images', 'videos'],
         allowsMultipleSelection: true,
         quality: 0.8,
         selectionLimit: 5,
         videoMaxDuration: 60,
         videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+        preferredAssetRepresentationMode:
+          ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+        exif: false,
       });
 
       if (!result.canceled && result.assets) {
-        const newMedia = result.assets.map((asset) => {
-          let mimeType = 'application/octet-stream';
-          if (asset.type === 'video') {
+        const readableAssets = result.assets.filter((asset) => asset?.uri);
+
+        if (readableAssets.length === 0) {
+          toast.error('Unable to read media. Please choose another photo or video.');
+          return;
+        }
+
+        const newMedia = readableAssets.map((asset) => {
+          const mediaType = asset.type === 'video' ? 'video' : 'image';
+          let mimeType = asset.mimeType || 'application/octet-stream';
+          if (!asset.mimeType && mediaType === 'video') {
             mimeType = asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
-          } else {
+          } else if (!asset.mimeType) {
             mimeType = 'image/jpeg';
           }
 
           return {
             uri: asset.uri,
-            type: asset.type === 'video' ? 'video' : 'image',
+            type: mediaType,
             mimeType: mimeType,
-            name: asset.fileName || `event_${asset.type}_${Date.now()}.${asset.type === 'video' ? 'mp4' : 'jpg'}`,
+            name: asset.fileName || `event_${mediaType}_${Date.now()}.${mediaType === 'video' ? 'mp4' : 'jpg'}`,
             fileSize: asset.fileSize,
           };
         });
@@ -227,7 +255,14 @@ export default function EditEvent() {
       }
     } catch (error) {
       console.error('Error picking media:', error);
-      toast.error('Failed to pick media. Please try again.');
+      const isRepresentationError =
+        error?.message?.includes('Cannot load representation') ||
+        error?.message?.includes('Failed to read picked image');
+      toast.error(
+        isRepresentationError
+          ? 'Unable to read this image. Please choose another photo or save it again in Photos.'
+          : 'Failed to pick media. Please try again.'
+      );
     }
   };
 
@@ -413,6 +448,13 @@ export default function EditEvent() {
         ...(allVideos.length > 0 && { videos: allVideos }),
         ...(form.isOrganizer && {isOrganizer: form.isOrganizer}),
         ...(form.isHost &&  {isHost: form.isHost}),
+        tickets: tickets.length > 0 ? tickets : [{
+          name: isTicket ? "Standard Ticket" : "Free Entry",
+          price: isTicket ? parseFloat(ticketAmount) || 0 : 0,
+          capacity: capacity ? parseInt(capacity) : 2000,
+          type: "regular",
+          isInviteOnly: false
+        }],
       };
 
       const response = await api.put(`/event/${id}`, eventData, {
@@ -425,7 +467,7 @@ export default function EditEvent() {
       toast.success('Event updated successfully');
       router.back();
     } catch (error) {
-      console.error('Error updating event:', error.response || error);
+      console.log('Error updating event:', error.response?.data || error.message);
       const message =
         error.response?.data?.error ||
         error.message ||
@@ -537,7 +579,13 @@ export default function EditEvent() {
         ...(uploadedVideos.length > 0 && { videos: uploadedVideos }),
         ...(form.isOrganizer && {isOrganizer: form.isOrganizer}),
         ...(form.isHost &&  {isHost: form.isHost}),
-
+        tickets: tickets.length > 0 ? tickets : [{
+          name: form.isTicket ? "Standard Ticket" : "Free Entry",
+          price: form.isTicket ? parseFloat(form.ticketAmount) || 0 : 0,
+          capacity: form.capacity ? parseInt(form.capacity) : 2000,
+          type: "regular",
+          isInviteOnly: false
+        }],
       };
 
       console.log('Saving draft:', draftData);
@@ -558,7 +606,7 @@ export default function EditEvent() {
 
       router.back();
     } catch (error) {
-      console.error('Error saving draft:', error.response || error);
+      console.log('Error saving draft:', error.response?.data || error.message);
       const message =
         error.response?.data?.error ||
         error.message ||
@@ -585,11 +633,10 @@ export default function EditEvent() {
   }
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-      >
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
         {isSubmitting && <CustomLoader />}
 
         <ScrollView
@@ -938,10 +985,18 @@ export default function EditEvent() {
               </View>
             </View>
 
-            {/* Ticketing */}
-            <View style={styles.switchContainer}>
+            {/* Ticketing - Advanced */}
+            <View style={styles.advancedSection}>
+              <View style={styles.advancedSectionHeader}>
+                <Text style={styles.label}>Ticket Tiers *</Text>
+                <TouchableOpacity onPress={() => setShowAddTicket(!showAddTicket)}>
+                  <Text style={styles.addText}>{showAddTicket ? 'Cancel' : '+ Add Ticket'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Legacy Fallback Toggle (Since payload shouldn't change yet) */}
               <View style={styles.switchRow}>
-                <Text style={styles.switchLabel}>Is this a ticketed event?</Text>
+                <Text style={styles.switchLabel}>Is this a paid event?</Text>
                 <Switch
                   value={form.isTicket}
                   onValueChange={(value) => handleChange('isTicket', value)}
@@ -951,13 +1006,57 @@ export default function EditEvent() {
               </View>
               {form.isTicket && (
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { marginBottom: 15 }]}
                   value={form.ticketAmount}
                   onChangeText={(text) => handleChange('ticketAmount', text)}
-                  placeholder="Ticket price"
+                  placeholder="Base Ticket Price (Legacy)"
                   placeholderTextColor="#999"
                   keyboardType="decimal-pad"
                 />
+              )}
+
+              {/* Multiple Tickets UI */}
+              {tickets.map((t, index) => (
+                <View key={index} style={styles.ticketCard}>
+                  <View>
+                    <Text style={styles.ticketName}>{t.name} <Text style={styles.ticketTypeBadge}>({t.type})</Text></Text>
+                    <Text style={styles.ticketDetails}>Price: ₦{t.price} • Capacity: {t.capacity} {t.isInviteOnly ? '• Invite Only' : ''}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setTickets(tickets.filter((_, i) => i !== index))}>
+                    <Ionicons name="trash-outline" size={20} color="#ff4444" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              {showAddTicket && (
+                <View style={styles.addFormCard}>
+                  <TextInput style={styles.inputSmall} placeholder="Ticket Name (e.g. VIP)" value={newTicket.name} onChangeText={(t) => setNewTicket({...newTicket, name: t})} />
+                  <View style={styles.row}>
+                    <TextInput style={[styles.inputSmall, { flex: 1, marginRight: 10 }]} placeholder="Price" keyboardType="numeric" value={newTicket.price} onChangeText={(t) => setNewTicket({...newTicket, price: t})} />
+                    <TextInput style={[styles.inputSmall, { flex: 1 }]} placeholder="Capacity" keyboardType="numeric" value={newTicket.capacity} onChangeText={(t) => setNewTicket({...newTicket, capacity: t})} />
+                  </View>
+                  <View style={styles.row}>
+                    <TouchableOpacity style={[styles.typeBtn, newTicket.type === 'regular' && styles.typeBtnActive]} onPress={() => setNewTicket({...newTicket, type: 'regular'})}><Text style={newTicket.type === 'regular' ? styles.typeBtnTextActive : styles.typeBtnText}>Regular</Text></TouchableOpacity>
+                    <TouchableOpacity style={[styles.typeBtn, newTicket.type === 'vip' && styles.typeBtnActive]} onPress={() => setNewTicket({...newTicket, type: 'vip'})}><Text style={newTicket.type === 'vip' ? styles.typeBtnTextActive : styles.typeBtnText}>VIP</Text></TouchableOpacity>
+                    <TouchableOpacity style={[styles.typeBtn, newTicket.type === 'early_bird' && styles.typeBtnActive]} onPress={() => setNewTicket({...newTicket, type: 'early_bird'})}><Text style={newTicket.type === 'early_bird' ? styles.typeBtnTextActive : styles.typeBtnText}>Early Bird</Text></TouchableOpacity>
+                  </View>
+                  <View style={[styles.switchRow, { marginTop: 10 }]}>
+                    <Text style={styles.switchLabel}>Invite Only?</Text>
+                    <Switch value={newTicket.isInviteOnly} onValueChange={(val) => setNewTicket({...newTicket, isInviteOnly: val})} trackColor={{ false: '#ccc', true: '#5A31F4' }} />
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.saveAddBtn} 
+                    onPress={() => {
+                      if(newTicket.name && newTicket.price) {
+                        setTickets([...tickets, newTicket]);
+                        setNewTicket({ name: '', price: '', capacity: '', type: 'regular', isInviteOnly: false });
+                        setShowAddTicket(false);
+                      }
+                    }}
+                  >
+                    <Text style={styles.saveAddBtnText}>Save Ticket</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
 
@@ -1035,8 +1134,7 @@ export default function EditEvent() {
           </Animated.View>
         </ScrollView>
        
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1313,5 +1411,108 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#333',
     fontFamily: 'Poppins_400Regular',
+  },
+  advancedSection: {
+    marginBottom: 20,
+    backgroundColor: '#FAFAFA',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E8DBFF',
+  },
+  advancedSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  addText: {
+    color: '#5A31F4',
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 13,
+  },
+  ticketCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+    marginBottom: 8,
+  },
+  ticketName: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+    color: '#333',
+  },
+  ticketTypeBadge: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 11,
+    color: '#999',
+    textTransform: 'uppercase',
+  },
+  ticketDetails: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  addFormCard: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E8DBFF',
+    marginTop: 8,
+  },
+  inputSmall: {
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'Poppins_400Regular',
+    backgroundColor: '#fafafa',
+    marginBottom: 10,
+  },
+  typeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    backgroundColor: '#f9f9f9',
+    marginHorizontal: 2,
+    borderRadius: 6,
+  },
+  typeBtnActive: {
+    backgroundColor: '#5A31F4',
+    borderColor: '#5A31F4',
+  },
+  typeBtnText: {
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 12,
+    color: '#666',
+  },
+  typeBtnTextActive: {
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 12,
+    color: '#fff',
+  },
+  saveAddBtn: {
+    backgroundColor: '#F3EDFF',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  saveAddBtnText: {
+    color: '#5A31F4',
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
   },
 });

@@ -12,54 +12,132 @@ import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
-const CustomToast = ({ 
-  visible, 
-  message, 
-  type = 'success', 
-  duration = 3000,
-  onHide 
+const TOAST_CONFIG = {
+  success: {
+    icon: 'checkmark-circle',
+    accent: '#22C55E',
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+    title: 'Success',
+  },
+  error: {
+    icon: 'close-circle',
+    accent: '#EF4444',
+    backgroundColor: '#FFF1F2',
+    borderColor: '#FECDD3',
+    title: 'Something went wrong',
+  },
+  warning: {
+    icon: 'warning',
+    accent: '#D97706',
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+    title: 'Heads up',
+  },
+  info: {
+    icon: 'information-circle',
+    accent: '#5A31F4',
+    backgroundColor: '#F8F4FF',
+    borderColor: '#E8DBFF',
+    title: 'Note',
+  },
+};
+
+const getConfig = (type = 'info') => TOAST_CONFIG[type] || TOAST_CONFIG.info;
+
+const ToastCard = ({
+  type = 'info',
+  title,
+  message,
+  onPress,
+  onClose,
 }) => {
-  const translateY = useRef(new Animated.Value(-100)).current;
+  const config = getConfig(type);
+  const displayTitle = title || config.title;
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.94}
+      onPress={onPress}
+      style={[
+        styles.toastContent,
+        {
+          backgroundColor: config.backgroundColor,
+          borderColor: config.borderColor,
+        },
+      ]}
+    >
+      <View style={[styles.iconWrap, { backgroundColor: config.accent }]}>
+        <Ionicons name={config.icon} size={20} color="#FFFFFF" />
+      </View>
+
+      <View style={styles.copyWrap}>
+        <Text style={styles.title} numberOfLines={1}>
+          {displayTitle}
+        </Text>
+        {!!message && (
+          <Text style={styles.message} numberOfLines={3}>
+            {message}
+          </Text>
+        )}
+      </View>
+
+      {!!onClose && (
+        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <Ionicons name="close" size={18} color="#999" />
+        </TouchableOpacity>
+      )}
+    </TouchableOpacity>
+  );
+};
+
+const CustomToast = ({
+  visible,
+  message,
+  type = 'success',
+  duration = 3000,
+  onHide,
+}) => {
+  const translateY = useRef(new Animated.Value(-120)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
-      // Show animation
       Animated.parallel([
         Animated.spring(translateY, {
           toValue: 0,
-          friction: 8,
-          tension: 40,
+          damping: 16,
+          stiffness: 180,
+          mass: 0.8,
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
           toValue: 1,
-          duration: 300,
+          duration: 220,
           useNativeDriver: true,
         }),
       ]).start();
 
-      // Auto hide after duration
       const timer = setTimeout(() => {
         hideToast();
       }, duration);
 
       return () => clearTimeout(timer);
-    } else {
-      hideToast();
     }
+
+    hideToast();
   }, [visible]);
 
   const hideToast = () => {
     Animated.parallel([
       Animated.timing(translateY, {
-        toValue: -100,
-        duration: 250,
+        toValue: -120,
+        duration: 220,
         useNativeDriver: true,
       }),
       Animated.timing(opacity, {
         toValue: 0,
-        duration: 250,
+        duration: 180,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -67,54 +145,13 @@ const CustomToast = ({
     });
   };
 
-  const getToastConfig = () => {
-    switch (type) {
-      case 'success':
-        return {
-          icon: 'checkmark-circle',
-          color: '#4CAF50',
-          backgroundColor: '#E8F5E9',
-          borderColor: '#4CAF50',
-        };
-      case 'error':
-        return {
-          icon: 'close-circle',
-          color: '#F44336',
-          backgroundColor: '#FFEBEE',
-          borderColor: '#F44336',
-        };
-      case 'warning':
-        return {
-          icon: 'warning',
-          color: '#FAB843',
-          backgroundColor: '#FFF3E0',
-          borderColor: '#FAB843',
-        };
-      case 'info':
-        return {
-          icon: 'information-circle',
-          color: '#5A31F4',
-          backgroundColor: '#F3F0FF',
-          borderColor: '#5A31F4',
-        };
-      default:
-        return {
-          icon: 'information-circle',
-          color: '#5A31F4',
-          backgroundColor: '#F3F0FF',
-          borderColor: '#5A31F4',
-        };
-    }
-  };
-
-  const config = getToastConfig();
-
-  if (!visible && translateY._value === -100) {
+  if (!visible && translateY._value === -120) {
     return null;
   }
 
   return (
     <Animated.View
+      pointerEvents="box-none"
       style={[
         styles.container,
         {
@@ -123,68 +160,86 @@ const CustomToast = ({
         },
       ]}
     >
-      <TouchableOpacity
-        activeOpacity={0.9}
+      <ToastCard
+        type={type}
+        title={getConfig(type).title}
+        message={message}
         onPress={hideToast}
-        style={[
-          styles.toastContent,
-          {
-            backgroundColor: config.backgroundColor,
-            borderLeftColor: config.borderColor,
-          },
-        ]}
-      >
-        <View style={styles.iconContainer}>
-          <Ionicons name={config.icon} size={24} color={config.color} />
-        </View>
-        <Text style={[styles.message, { color: config.color }]} numberOfLines={2}>
-          {message}
-        </Text>
-        <TouchableOpacity onPress={hideToast} style={styles.closeButton}>
-          <Ionicons name="close" size={20} color={config.color} />
-        </TouchableOpacity>
-      </TouchableOpacity>
+        onClose={hideToast}
+      />
     </Animated.View>
   );
+};
+
+export const toastConfig = {
+  success: ({ text1, text2 }) => (
+    <ToastCard type="success" title={text1} message={text2} />
+  ),
+  error: ({ text1, text2 }) => (
+    <ToastCard type="error" title={text1} message={text2} />
+  ),
+  warning: ({ text1, text2 }) => (
+    <ToastCard type="warning" title={text1} message={text2} />
+  ),
+  info: ({ text1, text2 }) => (
+    <ToastCard type="info" title={text1} message={text2} />
+  ),
 };
 
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 50,
+    top: Platform.OS === 'ios' ? 88 : 72,
     left: 16,
     right: 16,
     zIndex: 9999,
     elevation: 999,
   },
   toastContent: {
+    width: width - 32,
+    minHeight: 68,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 3.84,
-    elevation: 5,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: '#5A31F4',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 8,
   },
-  iconContainer: {
+  iconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
-  message: {
+  copyWrap: {
     flex: 1,
+  },
+  title: {
+    fontFamily: 'Poppins_700Bold',
     fontSize: 14,
-    fontFamily: 'Poppins_500Medium',
-    lineHeight: 20,
+    color: '#1A1A1A',
+  },
+  message: {
+    marginTop: 2,
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 12,
+    color: '#666',
+    lineHeight: 17,
   },
   closeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginLeft: 8,
-    padding: 4,
   },
 });
 

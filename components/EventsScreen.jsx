@@ -6,27 +6,84 @@ import {
   Dimensions,
   Animated,
   ActivityIndicator,
-  TouchableOpacity,
 } from "react-native";
 import React, { useEffect, useRef, useState } from "react";
 import EventCategoryBoxes from "./EventCategoryBoxes";
 import { Ionicons } from "@expo/vector-icons";
-import LiveEventCard from "./LiveEventCard";
-import testImage from "../assets/livee.jpg";
-import { useRouter } from "expo-router";
 import ExploreEvents from "./ExploreEvents";
+import MapScreen from "./MapScreen";
 import api from "../utils/axiosInstance";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
 
 const { width, height } = Dimensions.get("window");
+const PAGE_SIZE = 10;
+const CACHE_TTL_MS = 60 * 1000;
+
+let categoriesCache = null;
+let categoriesCacheTime = 0;
+const eventsCache = new Map();
+
+const mergeUniqueEvents = (existingEvents, newEvents) => {
+  const merged = new Map();
+
+  existingEvents.forEach((event) => {
+    if (event?._id) merged.set(event._id, event);
+  });
+
+  newEvents.forEach((event) => {
+    if (event?._id) {
+      merged.set(event._id, {
+        ...merged.get(event._id),
+        ...event,
+      });
+    }
+  });
+
+  return Array.from(merged.values());
+};
+
+const SkeletonLoader = ({ width, height, borderRadius = 8, style }) => {
+  const animatedValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(animatedValue, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedValue, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  const opacity = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.4, 0.8],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        { width, height, borderRadius, backgroundColor: "#E5E7EB", opacity },
+        style,
+      ]}
+    />
+  );
+};
 
 export default function EventsScreen({ 
   isExploreMode = false, 
   searchQuery = "",
-  filterStatus = "all" 
+  filterStatus = "all",
+  mapMode = false
 }) {
-  const router = useRouter();
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [searchResults, setSearchResults] = useState(null);
@@ -42,29 +99,86 @@ export default function EventsScreen({
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   
-  // Subtle animations
-  const categoriesOpacity = useRef(new Animated.Value(0)).current;
-  const categoriesY = useRef(new Animated.Value(10)).current;
+  // Subtle animations — start at final state so categories are visible immediately on remount
+  const categoriesOpacity = useRef(new Animated.Value(1)).current;
+  const categoriesY = useRef(new Animated.Value(0)).current;
+  const loadingMoreRef = useRef(false);
+  const allEventsRef = useRef([]);
+  const feedCacheKeyRef = useRef("explore");
 
   useEffect(() => {
-    fetchCategories();
-    fetchAllEvents(1, true); // Initial load
-  }, []);
+    const bootstrapFeed = async () => {
+      const isGuest = await AsyncStorage.getItem("isGuest");
+      const storedUser = await AsyncStorage.getItem("user");
+      let currentUserId = "guest";
+
+      try {
+        currentUserId = storedUser ? JSON.parse(storedUser)?._id || "guest" : "guest";
+      } catch (error) {
+        currentUserId = "guest";
+      }
+
+      const feedCacheKey =
+        isExploreMode || isGuest === "true"
+          ? "explore"
+          : `authenticated:${currentUserId}`;
+      feedCacheKeyRef.current = feedCacheKey;
+      const cachedFeed = eventsCache.get(feedCacheKey);
+      const hasFreshCategoriesCache =
+        categoriesCache && Date.now() - categoriesCacheTime < CACHE_TTL_MS;
+      const hasFreshFeedCache =
+        cachedFeed && Date.now() - cachedFeed.time < CACHE_TTL_MS;
+
+      if (categoriesCache) {
+        setCategories(categoriesCache);
+        setLoadingCategories(false);
+      }
+
+      if (cachedFeed?.events?.length) {
+        categorizeEvents(cachedFeed.events);
+        setCurrentPage(cachedFeed.currentPage || 1);
+        setHasMore(cachedFeed.hasMore ?? true);
+        setLoadingEvents(false);
+      }
+
+      if (!hasFreshCategoriesCache) {
+        fetchCategories();
+      }
+
+      if (!hasFreshFeedCache) {
+        fetchAllEvents(1, true, {
+          silent: !!cachedFeed?.events?.length,
+          cacheKey: feedCacheKey,
+        });
+      }
+    };
+
+    bootstrapFeed();
+  }, [isExploreMode]);
 
   useEffect(() => {
-    // Subtle entrance animation for categories
-    Animated.parallel([
-      Animated.timing(categoriesY, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.timing(categoriesOpacity, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Only animate if categories are not already loaded from cache
+    if (categoriesCache) {
+      // Already loaded — snap to visible immediately
+      categoriesOpacity.setValue(1);
+      categoriesY.setValue(0);
+    } else {
+      // First load — start hidden and animate in once data arrives
+      categoriesOpacity.setValue(0);
+      categoriesY.setValue(10);
+      Animated.parallel([
+        Animated.timing(categoriesY, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(categoriesOpacity, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
   }, []);
 
   // Search functionality
@@ -86,6 +200,8 @@ export default function EventsScreen({
       const response = await api.get("/category");
 
       if (response.data.success) {
+        categoriesCache = response.data.data;
+        categoriesCacheTime = Date.now();
         setCategories(response.data.data);
       }
     } catch (error) {
@@ -100,14 +216,19 @@ export default function EventsScreen({
     }
   };
 
-  const fetchAllEvents = async (page = 1, isInitial = false) => {
+  const fetchAllEvents = async (page = 1, isInitial = false, options = {}) => {
     // Prevent multiple simultaneous requests
-    if (loadingMore || (!isInitial && !hasMore)) return;
+    if (loadingMoreRef.current || loadingMore || (!isInitial && loadingEvents)) return;
 
     try {
+      const requestedPage = !isInitial && !hasMore ? 1 : page;
+
       if (isInitial) {
-        setLoadingEvents(true);
+        if (!options.silent) {
+          setLoadingEvents(true);
+        }
       } else {
+        loadingMoreRef.current = true;
         setLoadingMore(true);
       }
 
@@ -115,7 +236,11 @@ export default function EventsScreen({
       const isGuest = await AsyncStorage.getItem("isGuest");
 
       const baseUrl = isExploreMode || isGuest === "true" ? "/event/explore" : "/event";
-      const url = `${baseUrl}?limit=10&page=${page}`;
+      const cacheKey =
+        options.cacheKey ||
+        feedCacheKeyRef.current ||
+        (isExploreMode || isGuest === "true" ? "explore" : "authenticated");
+      const url = `${baseUrl}?limit=${PAGE_SIZE}&page=${requestedPage}`;
       
       const config = isGuest === "true" || !token 
         ? {
@@ -129,23 +254,36 @@ export default function EventsScreen({
       const response = await api.get(url, config);
 
       if (response.data.success) {
-        const newEvents = response.data.data;
+        const responseData = response.data.data;
+        const newEvents = Array.isArray(responseData) ? responseData : [responseData].filter(Boolean);
         
         // Check if there are more events to load
-        if (newEvents.length < 10) {
-          setHasMore(false);
-        }
+        setHasMore(newEvents.length >= PAGE_SIZE);
 
         if (isInitial) {
           // Initial load - replace all events
           categorizeEvents(newEvents);
+          eventsCache.set(cacheKey, {
+            events: newEvents,
+            currentPage: requestedPage,
+            hasMore: newEvents.length >= PAGE_SIZE,
+            time: Date.now(),
+          });
         } else {
           // Pagination - append new events
-          const updatedEvents = [...allEvents, ...newEvents];
+          const updatedEvents = requestedPage === 1 && !hasMore
+            ? mergeUniqueEvents(allEventsRef.current, newEvents)
+            : mergeUniqueEvents(allEventsRef.current, newEvents);
           categorizeEvents(updatedEvents);
+          eventsCache.set(cacheKey, {
+            events: updatedEvents,
+            currentPage: requestedPage,
+            hasMore: newEvents.length >= PAGE_SIZE,
+            time: Date.now(),
+          });
         }
 
-        setCurrentPage(page);
+        setCurrentPage(requestedPage);
       }
     } catch (error) {
       console.error("Error fetching events:", error);
@@ -156,6 +294,7 @@ export default function EventsScreen({
       });
     } finally {
       setLoadingEvents(false);
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
   };
@@ -177,11 +316,10 @@ export default function EventsScreen({
       // Note: draft and cancelled events are excluded from the feed
     });
   
-    console.log("Completed Events:", completed);
-    
     setOngoingEvents(ongoing);
     setFutureEvents(pending);
     setCompletedEvents(completed);
+    allEventsRef.current = events;
     setAllEvents(events);
   };
 
@@ -220,205 +358,68 @@ export default function EventsScreen({
     }
   };
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
-  const formatTime = (dateString) => {
-    const utcDate = new Date(dateString);
-   // Force to UTC components (no timezone offset)
-   const localDate = new Date(
-     utcDate.getUTCFullYear(),
-     utcDate.getUTCMonth(),
-     utcDate.getUTCDate(),
-     utcDate.getUTCHours(),
-     utcDate.getUTCMinutes()
-   );
- 
-   return localDate.toLocaleTimeString("en-US", {
-     hour: "numeric",
-     minute: "2-digit",
-     hour12: true,
-   });
-  };
- 
-
-  // Helper function to get event media (video or image)
-  const getEventMedia = (event) => {
-    // Check if event has videos first
-    if (event.videos && event.videos.length > 0) {
-      return { type: 'video', src: event.videos[0] };
-    }
-    // Fall back to images
-    if (event.images && event.images.length > 0) {
-      return { type: 'image', src: event.images[0] };
-    }
-    // Default placeholder image
-    return { 
-      type: 'image', 
-      src: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800" 
-    };
+  // Calculate Haversine distance (mocking user location at Lagos 6.5244, 3.3792)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    return R * c;
   };
 
   // Filter events based on selected filter
   const getFilteredEvents = () => {
-    if (filterStatus === "all") {
-      return allEvents;
-    } else if (filterStatus === "ongoing") {
-      return ongoingEvents;
-    } else if (filterStatus === "pending") {
-      return futureEvents;
-    } else if (filterStatus === "completed") {
-      return completedEvents;
-    }
-    return allEvents;
-  };
+    let baseEvents = allEvents;
+    const status = typeof filterStatus === 'string' ? filterStatus : filterStatus.status;
+    
+    if (status === "ongoing") baseEvents = ongoingEvents;
+    else if (status === "pending") baseEvents = futureEvents;
+    else if (status === "completed") baseEvents = completedEvents;
 
-  // Create advanced randomized feed with interleaved sections
-  const createRandomizedFeed = () => {
-    // If filter is active, show filtered events only
-    if (filterStatus !== "all") {
-      const filteredEvents = getFilteredEvents();
-      const sections = [];
-      
-      // Create sections of 4 events each for vertical scroll
-      for (let i = 0; i < filteredEvents.length; i += 4) {
-        const sectionEvents = filteredEvents.slice(i, i + 4);
-        if (sectionEvents.length > 0) {
-          sections.push({
-            id: `filtered-${filterStatus}-${i}`,
-            type: filterStatus,
-            status: filterStatus,
-            title: filterStatus === "ongoing" 
-              ? "Happening Now" 
-              : filterStatus === "pending" 
-              ? "Upcoming Events" 
-              : "Past Events",
-            events: sectionEvents,
-            scrollDirection: 'vertical'
-          });
+    if (typeof filterStatus === 'string') return baseEvents;
+
+    return baseEvents.filter(event => {
+      // Distance filter
+      if (filterStatus.distance && filterStatus.distance !== "any") {
+        const radius = parseInt(filterStatus.distance, 10);
+        if (event.lat && event.long) {
+          const dist = calculateDistance(6.5244, 3.3792, parseFloat(event.lat), parseFloat(event.long));
+          if (dist > radius) return false;
+        } else {
+          return false;
         }
       }
-      
-      return sections;
-    }
 
-    // Default randomized feed when filter is "all"
-    const sections = [];
-    let allEventsIndex = 0;
-    let ongoingIndex = 0;
-    let futureIndex = 0;
-    let completedEventsIndex = 0;
+      // Price filter
+      if (filterStatus.price === "free" && event.isTicket) return false;
+      if (filterStatus.price === "paid" && !event.isTicket) return false;
 
-    // Calculate how many sections we can create for each type
-    const maxOngoingSections = Math.ceil(ongoingEvents.length / 3);
-    const maxFutureSections = Math.ceil(futureEvents.length / 3);
-    const maxCompletedSections = Math.ceil(completedEvents.length / 3);
-    const maxAllSections = Math.ceil(allEvents.length / 4);
-
-    // Create a pool of section types based on available content
-    const sectionPool = [];
-    
-    // Add ongoing sections to pool
-    for (let i = 0; i < maxOngoingSections; i++) {
-      sectionPool.push({ type: 'ongoing', index: i });
-    }
-    
-    // Add future sections to pool
-    for (let i = 0; i < maxFutureSections; i++) {
-      sectionPool.push({ type: 'future', index: i });
-    }
-    
-    // Add completed sections to pool
-    for (let i = 0; i < maxCompletedSections; i++) {
-      sectionPool.push({ type: 'completed', index: i });
-    }
-    
-    // Add "all" sections to pool
-    for (let i = 0; i < maxAllSections; i++) {
-      sectionPool.push({ type: 'all', index: i });
-    }
-
-    // Shuffle the entire pool
-    const shuffledPool = [...sectionPool].sort(() => Math.random() - 0.5);
-
-    // Build sections from shuffled pool
-    shuffledPool.forEach((item, idx) => {
-      if (item.type === 'ongoing' && ongoingIndex < ongoingEvents.length) {
-        const sectionEvents = ongoingEvents.slice(ongoingIndex, ongoingIndex + 3);
-        if (sectionEvents.length > 0) {
-          sections.push({
-            id: `ongoing-${idx}`,
-            type: 'ongoing',
-            status: 'ongoing',
-            title: 'Happening Now',
-            events: sectionEvents,
-            scrollDirection: 'horizontal'
-          });
-          ongoingIndex += 3;
-        }
-      } else if (item.type === 'future' && futureIndex < futureEvents.length) {
-        const sectionEvents = futureEvents.slice(futureIndex, futureIndex + 3);
-        if (sectionEvents.length > 0) {
-          sections.push({
-            id: `future-${idx}`,
-            type: 'future',
-            status: 'pending',
-            title: 'Upcoming Events',
-            events: sectionEvents,
-            scrollDirection: 'horizontal'
-          });
-          futureIndex += 3;
-        }
-      } else if (item.type === 'completed' && completedEventsIndex < completedEvents.length) {
-        const sectionEvents = completedEvents.slice(completedEventsIndex, completedEventsIndex + 3);
-        if (sectionEvents.length > 0) {
-          sections.push({
-            id: `completed-${idx}`,
-            type: 'completed',
-            status: 'completed',
-            title: 'Past Events',
-            events: sectionEvents,
-            scrollDirection: 'horizontal'
-          });
-          completedEventsIndex += 3;
-        }
-      } else if (item.type === 'all' && allEventsIndex < allEvents.length) {
-        const sectionEvents = allEvents.slice(allEventsIndex, allEventsIndex + 4);
-        if (sectionEvents.length > 0) {
-          sections.push({
-            id: `all-${idx}`,
-            type: 'all',
-            status: null,
-            title: 'Explore Events',
-            events: sectionEvents,
-            scrollDirection: 'vertical'
-          });
-          allEventsIndex += 4;
+      // Date filter
+      if (filterStatus.date && filterStatus.date !== "any" && event.start) {
+        const eventDate = new Date(event.start);
+        const today = new Date();
+        if (filterStatus.date === "today") {
+          if (eventDate.toDateString() !== today.toDateString()) return false;
+        } else if (filterStatus.date === "weekend") {
+          const day = eventDate.getDay();
+          if (day !== 0 && day !== 6 && day !== 5) return false; // 5=Fri, 6=Sat, 0=Sun
         }
       }
+
+      return true;
     });
-
-    return sections;
   };
 
-  // Handle scroll to load more
-  const handleScroll = ({ nativeEvent }) => {
-    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-    const paddingToBottom = 20;
-    
-    // Check if user is near the bottom
-    const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= 
-      contentSize.height - paddingToBottom;
+  const handleLoadMore = () => {
+    const isFiltered = typeof filterStatus === 'string' ? filterStatus !== "all" : filterStatus.status !== "all" || filterStatus.distance !== "any" || filterStatus.price !== "all" || filterStatus.date !== "any";
+    if (loadingMoreRef.current || loadingMore || loadingEvents || isFiltered) return;
 
-    if (isCloseToBottom && hasMore && !loadingMore && !loadingEvents) {
-      fetchAllEvents(currentPage + 1, false);
-    }
+    const nextPage = hasMore ? currentPage + 1 : 1;
+    fetchAllEvents(nextPage, false);
   };
 
   // If searching, show search results
@@ -429,6 +430,12 @@ export default function EventsScreen({
         <Text style={styles.loadingText}>Searching...</Text>
       </View>
     );
+  }
+
+  // If map mode, show map
+  if (mapMode) {
+    const feedEvents = getFilteredEvents();
+    return <MapScreen events={feedEvents} />;
   }
 
   // If there are search results, show them
@@ -449,7 +456,7 @@ export default function EventsScreen({
         </View>
 
         {searchResults.length > 0 ? (
-          <ExploreEvents events={searchResults} isExploreMode={isExploreMode} />
+          <ExploreEvents events={searchResults} isExploreMode={isExploreMode} embedded />
         ) : (
           <View style={styles.emptySearchContainer}>
             <Ionicons name="search-outline" size={64} color="#ccc" />
@@ -463,43 +470,58 @@ export default function EventsScreen({
     );
   }
 
-  const randomizedSections = createRandomizedFeed();
-
   // Get filter label for display
   const getFilterLabel = () => {
-    if (filterStatus === "ongoing") return "Happening Now";
-    if (filterStatus === "pending") return "Upcoming Events";
-    if (filterStatus === "completed") return "Past Events";
-    return null;
+    if (typeof filterStatus === 'string') {
+      if (filterStatus === "ongoing") return "Happening Now";
+      if (filterStatus === "pending") return "Upcoming Events";
+      if (filterStatus === "completed") return "Past Events";
+      return null;
+    }
+    
+    let labels = [];
+    if (filterStatus.status === "ongoing") labels.push("Live");
+    if (filterStatus.status === "pending") labels.push("Upcoming");
+    if (filterStatus.status === "completed") labels.push("Past");
+    if (filterStatus.distance !== "any") labels.push(`<${filterStatus.distance}km`);
+    if (filterStatus.price !== "all") labels.push(filterStatus.price === "free" ? "Free" : "Paid");
+    if (filterStatus.date !== "any") labels.push(filterStatus.date === "today" ? "Today" : "Weekend");
+
+    return labels.length > 0 ? labels.join(", ") : null;
   };
 
-  return (
-    <ScrollView
-      showsVerticalScrollIndicator={false}
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      onScroll={handleScroll}
-      scrollEventThrottle={400}
-    >
+  const feedEvents = getFilteredEvents();
+  const feedTitle = getFilterLabel() || "Explore Events";
+  const feedHeader = (
+    <View>
       {/* ===== CATEGORIES SECTION ===== */}
-      {filterStatus === "all" && (
+      {(!filterStatus || (typeof filterStatus === 'string' ? filterStatus === "all" : filterStatus.status === "all")) && (
         <Animated.View
           style={{
             transform: [{ translateY: categoriesY }],
             opacity: categoriesOpacity,
+            paddingHorizontal: 16,
+            overflow: "visible",
           }}
         >
-          <Text style={styles.title}>Categories</Text>
+          <View style={styles.categoriesHeader}>
+            <Text style={styles.categoriesTitle}>Categories</Text>
+            <Text style={styles.categoriesSubtitle}>
+              Browse by type
+            </Text>
+          </View>
 
           {loadingCategories ? (
-            <View style={styles.categoriesLoadingContainer}>
-              <ActivityIndicator size="small" color="#5A31F4" />
-            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesScrollContent}>
+              {[1, 2, 3, 4, 5].map((key) => (
+                <SkeletonLoader key={key} width={80} height={100} borderRadius={16} style={{ marginRight: 12, marginTop: 10 }} />
+              ))}
+            </ScrollView>
           ) : (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.scrollContent}
+              contentContainerStyle={styles.categoriesScrollContent}
             >
               {categories.map((category) => (
                 <EventCategoryBoxes key={category._id} category={category} />
@@ -509,93 +531,58 @@ export default function EventsScreen({
         </Animated.View>
       )}
 
-      {/* ===== FILTER ACTIVE INDICATOR ===== */}
-      {filterStatus !== "all" && (
-        <View style={styles.filterActiveContainer}>
+      {getFilterLabel() && (
+        <View style={[styles.filterActiveContainer, { marginHorizontal: 16 }]}>
           <Text style={styles.filterActiveText}>
-            Showing: {getFilterLabel()}
+            Showing: {feedTitle}
           </Text>
         </View>
       )}
 
-      {/* ===== RANDOMIZED EVENT SECTIONS ===== */}
-      {loadingEvents ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#5A31F4" />
-          <Text style={styles.loadingText}>Loading events...</Text>
-        </View>
-      ) : randomizedSections.length > 0 ? (
-        <>
-          {randomizedSections.map((section) => (
-            <View key={section.id} style={styles.sectionContainer}>
-              <View style={styles.sectionHeader}>
-                <Text style={[styles.title, styles.sectionSpacing]}>
-                  {section.title}
-                </Text>
-                {section.scrollDirection === 'horizontal' && section.status && filterStatus === "all" && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      router.push(`/events/all/${section.status}`);
-                    }}
-                  >
-                    <Text style={styles.viewAllText}>View All</Text>
-                  </TouchableOpacity>
-                )}
+      <View style={[styles.sectionHeader, { paddingHorizontal: 16 }]}>
+        <Text style={[styles.title, styles.sectionSpacing]}>
+          {feedTitle}
+        </Text>
+      </View>
+    </View>
+  );
+
+  if (loadingEvents && feedEvents.length === 0) {
+    return (
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+      >
+        {feedHeader}
+        <View style={{ marginTop: 20 }}>
+          {[1, 2, 3].map((key) => (
+            <View key={key} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
+              <SkeletonLoader width="100%" height={180} borderRadius={16} style={{ marginBottom: 12 }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <SkeletonLoader width="60%" height={24} borderRadius={6} />
+                <SkeletonLoader width="20%" height={24} borderRadius={6} />
               </View>
-
-              {section.scrollDirection === 'horizontal' ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.scrollContent}
-                >
-                  {section.events.map((event) => {
-                    const media = getEventMedia(event);
-
-                    return (
-                      <LiveEventCard
-                        key={event._id}
-                        imgSrc={media.type === 'image' ? media.src : undefined}
-                        videoSrc={media.type === 'video' ? media.src : undefined}
-                        title={event.name}
-                        caption={event.description}
-                        date={formatDate(event.start)}
-                        time={formatTime(event.start)}
-                        location={event.address}
-                        price={event.isTicket ? `₦${event.ticketAmount}` : "Free"}
-                        eventId={event._id}
-                      />
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <ExploreEvents 
-                  events={section.events} 
-                  isExploreMode={isExploreMode} 
-                />
-              )}
+              <SkeletonLoader width="40%" height={16} borderRadius={4} style={{ marginBottom: 12 }} />
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <SkeletonLoader width={32} height={32} borderRadius={16} />
+                <SkeletonLoader width="30%" height={32} borderRadius={16} />
+              </View>
             </View>
           ))}
+        </View>
+      </ScrollView>
+    );
+  }
 
-          {/* Loading More Indicator */}
-          {loadingMore && filterStatus === "all" && (
-            <View style={styles.loadingMoreContainer}>
-              <ActivityIndicator size="small" color="#5A31F4" />
-              <Text style={styles.loadingMoreText}>Loading more events...</Text>
-            </View>
-          )}
-
-          {/* End of Feed Indicator */}
-          {!hasMore && allEvents.length > 0 && filterStatus === "all" && (
-            <View style={styles.endOfFeedContainer}>
-              <Text style={styles.endOfFeedText}>You've reached the end!</Text>
-              <Text style={styles.endOfFeedSubtext}>
-                That's all the events for now
-              </Text>
-            </View>
-          )}
-        </>
-      ) : (
+  if (feedEvents.length === 0) {
+    return (
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+      >
+        {feedHeader}
         <View style={styles.emptyContainer}>
           <Ionicons name="calendar-outline" size={64} color="#ccc" />
           <Text style={styles.emptyText}>No events available</Text>
@@ -606,29 +593,68 @@ export default function EventsScreen({
             }
           </Text>
         </View>
-      )}
-    </ScrollView>
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ExploreEvents
+      events={feedEvents}
+      isExploreMode={isExploreMode}
+      onEndReached={handleLoadMore}
+      loadingMore={loadingMore && filterStatus === "all"}
+      ListHeaderComponent={feedHeader}
+      contentContainerStyle={styles.contentContainer}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: height * 0.015,
+    flex: 1,
+    backgroundColor: "#F8F8F8",
   },
   contentContainer: {
+    paddingTop: 8,
     paddingBottom: height * 0.15,
   },
   title: {
-    fontFamily: "Poppins_600SemiBold",
-    color: "#444",
-    fontSize: Math.min(width * 0.043, 16),
-    marginBottom: height * 0.012,
+    fontFamily: "Poppins_700Bold",
+    color: "#1A1A1A",
+    fontSize: 16,
+    marginBottom: 12,
+    includeFontPadding: false,
   },
   sectionSpacing: {
     marginTop: height * 0.03,
   },
   scrollContent: {
     paddingRight: width * 0.05,
+  },
+  categoriesHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    paddingRight: 4,
+  },
+  categoriesTitle: {
+    fontFamily: "Poppins_700Bold",
+    color: "#1A1A1A",
+    fontSize: 16,
+    includeFontPadding: false,
+  },
+  categoriesSubtitle: {
+    fontFamily: "Poppins_400Regular",
+    color: "#999",
+    fontSize: 12,
+    includeFontPadding: false,
+  },
+  categoriesScrollContent: {
+    paddingLeft: 4,
+    paddingRight: 16,
+    paddingBottom: 6,
+    paddingTop: 2,
   },
   centerContainer: {
     flex: 1,
@@ -682,46 +708,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  sectionContainer: {
-    marginBottom: height * 0.02,
-  },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingRight: width * 0.05,
-  },
-  viewAllText: {
-    fontFamily: "Poppins_500Medium",
-    color: "#5A31F4",
-    fontSize: 13,
-  },
-  loadingMoreContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 20,
-    gap: 10,
-  },
-  loadingMoreText: {
-    fontFamily: "Poppins_400Regular",
-    color: "#666",
-    fontSize: 13,
-  },
-  endOfFeedContainer: {
-    alignItems: "center",
-    paddingVertical: 30,
-  },
-  endOfFeedText: {
-    fontFamily: "Poppins_500Medium",
-    color: "#666",
-    fontSize: 14,
-  },
-  endOfFeedSubtext: {
-    fontFamily: "Poppins_400Regular",
-    color: "#999",
-    fontSize: 12,
-    marginTop: 5,
   },
   filterActiveContainer: {
     backgroundColor: "#f8f4ff",

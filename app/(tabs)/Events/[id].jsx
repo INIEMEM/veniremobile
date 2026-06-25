@@ -12,9 +12,11 @@ import {
   Modal,
   Alert,
   Dimensions,
+  Platform,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Video } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
@@ -43,10 +45,25 @@ export default function EventDetailsScreen() {
   const [currentUserId, setCurrentUserId] = useState(null);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+
+  // Review & Rating states
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [reviewText, setReviewText] = useState("");
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [imageScale] = useState(new Animated.Value(1));
+
+  // Ticketing
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [ticketQuantities, setTicketQuantities] = useState({});
+  const [purchasingTickets, setPurchasingTickets] = useState(false);
+  
+  // Hired Vendors
+  const [hiredVendors, setHiredVendors] = useState([]);
+  const [fetchingVendors, setFetchingVendors] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -54,6 +71,49 @@ export default function EventDetailsScreen() {
       getCurrentUser();
     }
   }, [id, isDraft]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (event && currentUserId) {
+        const ownsEvent = event.userId?._id === currentUserId || event.userId === currentUserId;
+        if (ownsEvent && !isDraft) {
+          fetchHiredVendors();
+        }
+      }
+    }, [event, currentUserId, isDraft])
+  );
+
+  const fetchHiredVendors = async () => {
+    try {
+      setFetchingVendors(true);
+      const token = await AsyncStorage.getItem("token");
+      // Use event?._id as fallback just in case
+      const targetId = event?._id || id;
+
+      // console.log("Target ID:", targetId); 
+      const res = await api.get(`/user/vendors/hire/request/${targetId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data?.success) {
+        const data = res.data.data;
+        const finalData = Array.isArray(data) ? data : data ? [data] : [];
+        setHiredVendors(finalData);
+        // console.log("Hired vendors:", res.data);
+        // Debug
+        // Toast.show({ type: "info", text1: "Vendors fetched", text2: `Found ${finalData.length}` });
+      } else {
+        Toast.show({ type: "error", text1: "Failed", text2: res.data?.message || "Unknown error" });
+      }
+    } catch (err) {
+      if (err?.response?.status !== 404) {
+        console.log("Error fetching hired vendors:", err?.response?.data || err?.message);
+        Toast.show({ type: "error", text1: "Error fetching vendors", text2: err?.response?.data?.message || err.message });
+      }
+      setHiredVendors([]);
+    } finally {
+      setFetchingVendors(false);
+    }
+  };
 
   const getCurrentUser = async () => {
     try {
@@ -86,7 +146,7 @@ export default function EventDetailsScreen() {
           : response.data.data;
         setEvent(eventData);
       }
-      console.log("Fetched event data:", response.data);
+      // console.log("Fetched event data:", response.data);
     } catch (error) {
       console.error("Error fetching event details:", error);
       Toast.show({
@@ -102,6 +162,9 @@ export default function EventDetailsScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchEventDetails();
+    if (!isDraft) {
+      await fetchHiredVendors();
+    }
     setRefreshing(false);
   };
 
@@ -220,35 +283,72 @@ export default function EventDetailsScreen() {
     }
   };
 
-  const handleInterested = async () => {
+  const handleInterested = () => {
     if (!event || isDraft) {
-      Toast.show({
-        type: "info",
-        text1: "Cannot mark interest in draft events",
-      });
+      Toast.show({ type: "info", text1: "Cannot interact with draft events" });
+      return;
+    }
+    
+    // Always open the ticket modal
+    setShowTicketModal(true);
+  };
+
+  const updateTicketQuantity = (ticketId, delta) => {
+    setTicketQuantities(prev => {
+      const current = prev[ticketId] || 0;
+      const next = current + delta;
+      if (next < 0) return prev;
+      return { ...prev, [ticketId]: next };
+    });
+  };
+
+  const getTicketTotal = () => {
+    let total = 0;
+    const ticketsSource = event?.tickets?.length > 0 
+      ? event.tickets 
+      : [{
+          _id: event?._id || "default",
+          price: event?.ticketAmount || 0,
+        }];
+
+    Object.entries(ticketQuantities).forEach(([id, qty]) => {
+      const t = ticketsSource.find(x => x._id === id);
+      if (t && qty > 0) total += (t.price || 0) * qty;
+    });
+    return total;
+  };
+
+  const handlePurchaseTickets = async () => {
+    const totalQty = Object.values(ticketQuantities).reduce((a, b) => a + b, 0);
+    if (totalQty === 0) {
+      Toast.show({ type: "error", text1: "No tickets selected", text2: "Please select at least one ticket." });
       return;
     }
 
+    setPurchasingTickets(true);
     try {
       const token = await AsyncStorage.getItem("token");
+      const payload = {
+        eventId: event._id,
+        comment: "",
+        tickets: Object.entries(ticketQuantities)
+          .filter(([_, qty]) => qty > 0)
+          .map(([id, qty]) => ({ id, quantity: qty }))
+      };
 
-      await api.post(
-        "/event/interest",
-        { eventId: event._id, userStatus: "ongoing" },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      Toast.show({
-        type: "success",
-        text1: "Marked as interested",
+      const res = await api.post("/event/interest", payload, {
+        headers: { Authorization: `Bearer ${token}` }
       });
+
+      if (res.data?.success) {
+        Toast.show({ type: "success", text1: "Tickets purchased successfully!" });
+        setShowTicketModal(false);
+        setTicketQuantities({});
+      }
     } catch (error) {
-      console.error("Error marking interest:", error);
-      Toast.show({
-        type: "error",
-        text1: "Action failed",
-        text2: error.response?.data?.message || "Please try again",
-      });
+      Toast.show({ type: "error", text1: "Purchase Failed", text2: error.response?.data?.message || "Something went wrong" });
+    } finally {
+      setPurchasingTickets(false);
     }
   };
 
@@ -365,6 +465,46 @@ export default function EventDetailsScreen() {
     }
   };
 
+  const handleSubmitReview = async () => {
+    if (!rating) {
+      Toast.show({ type: "error", text1: "Please select a rating" });
+      return;
+    }
+    if (!reviewText.trim()) {
+      Toast.show({ type: "error", text1: "Please enter a review" });
+      return;
+    }
+
+    try {
+      setIsSubmittingReview(true);
+      const token = await AsyncStorage.getItem("token");
+      await api.post(
+        "/event/review-rate",
+        {
+          eventId: event._id,
+          review: reviewText.trim(),
+          rate: rating,
+          rating: rating,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      Toast.show({ type: "success", text1: "Review submitted successfully!" });
+      setShowReviewModal(false);
+      setRating(0);
+      setReviewText("");
+    } catch (error) {
+      console.error("Error submitting review:", error);
+      Toast.show({
+        type: "error",
+        text1: "Failed to submit review",
+        text2: error.response?.data?.message || "Please try again",
+      });
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
@@ -445,111 +585,195 @@ export default function EventDetailsScreen() {
     "https://via.placeholder.com/40/5A31F4/FFFFFF?text=" +
       (event.userId?.firstname?.charAt(0) || "U");
 
-  const isOwner = currentUserId && event.userId?._id === currentUserId;
+  const isOwner = currentUserId && (event.userId?._id === currentUserId || event.userId === currentUserId);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <ScrollView
-        style={styles.container}
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <View style={[styles.statusBadge, { backgroundColor: `${statusInfo.color}20`, borderColor: statusInfo.color }]}>
-          <Ionicons name={statusInfo.icon} size={16} color={statusInfo.color} />
-          <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
-            {statusInfo.label.toUpperCase()}
-          </Text>
-        </View>
-
-        <Text style={styles.title}>
-          {isDraft ? 'Draft Details' : 'Event Details'}
-        </Text>
-
-        <View style={styles.avatarContainer}>
-          <View style={styles.organizerName}>
-            <Image source={{ uri: organizerImage }} style={styles.replyAvatar} />
-            <View>
-              <Text style={styles.userName}>
-                {event.userId?.firstname || "Unknown"}{" "}
-                {event.userId?.lastname || ""}
-              </Text>
-              <Text style={styles.time}>{event?.isOrganizer && 'Organizer'} | {event?.isHost && 'Host'} {!event?.isOrganizer && !event?.isHost && 'Publisher'}</Text>
+        {/* Full Screen Image Header */}
+        <TouchableOpacity 
+          style={{ width: width, height: height * 0.45, position: 'relative' }}
+          onPress={media.type === 'image' ? handleImagePress : null}
+          activeOpacity={0.9}
+        >
+          {media.type === 'video' ? (
+            <Video source={{ uri: media.uri }} style={{ width: '100%', height: '100%' }} useNativeControls resizeMode="cover" />
+          ) : (
+            <Image source={{ uri: media.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          )}
+          {/* Top Overlays */}
+          <View style={{ position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => router.back()} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <View style={{ backgroundColor: statusInfo.color, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name={statusInfo.icon} size={14} color="#fff" />
+              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 12, color: '#fff' }}>{statusInfo.label.toUpperCase()}</Text>
             </View>
           </View>
-          <View>
+        </TouchableOpacity>
+
+        {/* Content overlapping the image */}
+        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, marginTop: -32, padding: 24 }}>
+          
+          {/* Title & Options */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+            <Text style={{ flex: 1, fontFamily: 'Poppins_700Bold', fontSize: 26, color: '#1A1A1A', lineHeight: 34 }}>{event.name || "Event Details"}</Text>
             {isOwner && (
-              <TouchableOpacity onPress={() => setShowOptionsMenu(true)}>
-                <Ionicons name="ellipsis-vertical" size={20} color="#888" />
+              <TouchableOpacity onPress={() => setShowOptionsMenu(true)} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', marginLeft: 12 }}>
+                <Ionicons name="ellipsis-vertical" size={20} color="#5A31F4" />
               </TouchableOpacity>
             )}
           </View>
-        </View>
 
-        <Text style={[styles.smalltitle, { marginTop: 20 }]}>
-          Event Description
-        </Text>
-        <Text style={styles.desc}>{event.description}</Text>
-
-        {/* Event Media with TouchableOpacity */}
-        <TouchableOpacity 
-          style={styles.mediaContainer}
-          onPress={media.type === 'image' ? handleImagePress : null}
-          activeOpacity={media.type === 'image' ? 0.8 : 1}
-        >
-          {media.type === 'video' ? (
-            <Video
-              source={{ uri: media.uri }}
-              style={styles.eventMedia}
-              useNativeControls
-              resizeMode="contain"
-              isLooping
-              shouldPlay={false}
-            />
-          ) : (
-            <Image source={{ uri: media.uri }} style={styles.eventMedia} />
-          )}
-          {media.type === 'image' && (
-            <View style={styles.expandIconContainer}>
-              <Ionicons name="expand-outline" size={24} color="#fff" />
-            </View>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.eventDetails}>
-          <Text style={styles.smalltitle}>{event.name}</Text>
-          <Text style={styles.caption}>
-            Capacity: {event.capacity} people
-          </Text>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.dateTime}>
-              {formatDate(event.start)} • {formatTime(event.start)}
-            </Text>
-          </View>
-
-          <Text> {event.end && 'End Date:'} </Text>
-          <View style={styles.infoRow}>
-            <Text style={styles.dateTime}>
-              {event?.end && formatDate(event?.end)} • {event.end && formatTime(event?.end)}
-            </Text>
-          </View>
-
-          <View style={[styles.infoRow2]}>
-            <View style={styles.mapBox}>
-              <Text style={styles.mapText}>Map</Text>
-            </View>
+          {/* Organizer Info */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F4FF', padding: 12, borderRadius: 16, marginBottom: 24 }}>
+            <Image source={{ uri: organizerImage }} style={{ width: 44, height: 44, borderRadius: 22, marginRight: 12, borderWidth: 2, borderColor: '#fff' }} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.mapText}>{event.address}</Text>
-              <Text style={styles.mapText}>
-                Lat: {event.lat}°, Long: {event.long}°
+              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#1A1A1A' }}>
+                {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
+              </Text>
+              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 13, color: '#6B7280' }}>
+                {event?.isOrganizer && 'Organizer'} {event?.isHost && '• Host'} {!event?.isOrganizer && !event?.isHost && 'Publisher'}
               </Text>
             </View>
           </View>
 
+          {/* Quick Info Grid */}
+          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+            <View style={{ flex: 1, backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, borderLeftWidth: 3, borderLeftColor: '#5A31F4' }}>
+              <Ionicons name="calendar" size={24} color="#5A31F4" style={{ marginBottom: 8 }} />
+              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 14, color: '#1A1A1A' }}>{formatDate(event.start)}</Text>
+              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>{formatTime(event.start)}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, borderLeftWidth: 3, borderLeftColor: '#FAB843' }}>
+              <Ionicons name="people" size={24} color="#FAB843" style={{ marginBottom: 8 }} />
+              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 14, color: '#1A1A1A' }}>{event.capacity} Max</Text>
+              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>Capacity</Text>
+            </View>
+          </View>
+
+          {event.end && (
+            <View style={{ backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, marginBottom: 24, borderLeftWidth: 3, borderLeftColor: '#FF3B30' }}>
+              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 14, color: '#1A1A1A' }}>Ends {formatDate(event.end)}</Text>
+              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>{formatTime(event.end)}</Text>
+            </View>
+          )}
+
+          {/* Location */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, marginBottom: 24 }}>
+            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#E8DBFF', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+              <Ionicons name="location" size={24} color="#5A31F4" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#1A1A1A', marginBottom: 2 }}>{event.address}</Text>
+              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>Lat: {event.lat}°, Long: {event.long}°</Text>
+            </View>
+          </View>
+
+          {/* Description */}
+          <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: 18, color: '#1A1A1A', marginBottom: 12 }}>About Event</Text>
+          <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 15, color: '#4B5563', lineHeight: 24, marginBottom: 32 }}>{event.description}</Text>
+
+          {isOwner && (
+            <View style={styles.vendorSection}>
+              <View style={styles.vendorSectionHeader}>
+                <Text style={styles.smalltitle}>Hired Vendors</Text>
+                {hiredVendors.length > 0 && (
+                  <Text style={styles.vendorCount}>{hiredVendors.length} hired</Text>
+                )}
+              </View>
+
+              {hiredVendors.length > 0 ? (
+                hiredVendors.map((req, index) => {
+                  // The API returns: req.vendor.firstname, req.vendor.businessName,
+                  // req.vendor.profile_picture, req.message, req.amount, req._id
+                  const name = req.vendor?.firstname
+                    ? `${req.vendor.firstname} ${req.vendor.lastname || ''}`.trim()
+                    : req.vendor?.businessName || 'Vendor';
+                  const category = req.vendor?.category || req.vendor?.serviceType || req.vendor?.role || 'Service Provider';
+                  const photo = req.vendor?.profile_picture || req.vendor?.userId?.profile_picture;
+                  const message = req.message || req.note || '';
+                  const amount = req.amount || 0;
+                  const status = req.status || 'pending';
+                  const STATUS_CONFIG = {
+                    accepted:  { bg: '#EFF6FF', text: '#3B82F6', label: 'Accepted' },
+                    pending:   { bg: '#FEF3C7', text: '#F59E0B', label: 'Awaiting Vendor' },
+                    rejected:  { bg: '#FEF2F2', text: '#EF4444', label: 'Rejected' },
+                    completed: { bg: '#ECFDF5', text: '#10B981', label: 'Completed ✓' },
+                    process:   { bg: '#F3EDFF', text: '#8B5CF6', label: 'In Progress' },
+                    delivered: { bg: '#ECFDF5', text: '#10B981', label: 'Delivered' },
+                  };
+                  const sc = STATUS_CONFIG[status] || { bg: '#F3F4F6', text: '#6B7280', label: status };
+
+                  return (
+                    <TouchableOpacity
+                      key={req._id || index}
+                      style={styles.vendorCard}
+                      onPress={() => router.push({
+                        pathname: `/orders/${req._id}`,
+                        params: { orderData: JSON.stringify(req) }
+                      })}
+                      activeOpacity={0.85}
+                    >
+                      <View style={styles.vendorCardLeft}>
+                        {photo ? (
+                          <Image source={{ uri: photo }} style={styles.vendorAvatar} />
+                        ) : (
+                          <View style={[styles.vendorAvatar, styles.vendorAvatarFallback]}>
+                            <Text style={styles.vendorAvatarLetter}>{name.charAt(0).toUpperCase()}</Text>
+                          </View>
+                        )}
+                        <View style={styles.vendorCardInfo}>
+                          <Text style={styles.vendorCardName} numberOfLines={1}>{name}</Text>
+                          {message ? (
+                            <Text style={styles.vendorCardCategory} numberOfLines={1}>"{message}"</Text>
+                          ) : (
+                            <Text style={styles.vendorCardCategory} numberOfLines={1}>
+                              {amount > 0 ? `₦${amount.toLocaleString()}` : category}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+                          <Text style={[styles.statusBadgeText, { color: sc.text }]}>{sc.label}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color="#CCC" />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <Text style={styles.vendorEmptyText}>No vendors hired yet</Text>
+              )}
+
+              {/* Hire a Vendor CTA */}
+              <TouchableOpacity
+                style={styles.hireVendorCta}
+                onPress={() => router.push(`/(tabs)/Vendor/marketplace?eventId=${event._id}`)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.hireVendorCtaLeft}>
+                  <View style={styles.hireVendorIcon}>
+                    <Ionicons name="storefront" size={22} color="#5A31F4" />
+                  </View>
+                  <View>
+                    <Text style={styles.hireVendorTitle}>Hire a Vendor</Text>
+                    <Text style={styles.hireVendorSubtitle}>Browse photographers, caterers & more</Text>
+                  </View>
+                </View>
+                <Ionicons name="arrow-forward-circle" size={28} color="#5A31F4" />
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={styles.priceRow}>
-            {!isDraft && (
+            {!isDraft && !isOwner && (
               <TouchableOpacity
                 style={styles.interestedBtn}
                 onPress={handleInterested}
@@ -622,19 +846,29 @@ export default function EventDetailsScreen() {
         </View>
 
         {!isDraft && (
-          <TouchableOpacity
-            style={styles.viewCommentsBtn}
-            onPress={() => setShowComments(!showComments)}
-          >
-            <Text style={styles.viewCommentsText}>
-              {showComments ? "Hide Comments" : "View Comments"}
-            </Text>
-            <Ionicons
-              name={showComments ? "chevron-up" : "chevron-down"}
-              size={20}
-              color="#5A31F4"
-            />
-          </TouchableOpacity>
+          <View style={{flexDirection: 'row', justifyContent: 'center', gap: 15, marginBottom: 20}}>
+            <TouchableOpacity
+              style={styles.viewCommentsBtn}
+              onPress={() => setShowComments(!showComments)}
+            >
+              <Text style={styles.viewCommentsText}>
+                {showComments ? "Hide Comments" : "View Comments"}
+              </Text>
+              <Ionicons
+                name={showComments ? "chevron-up" : "chevron-down"}
+                size={20}
+                color="#5A31F4"
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.viewCommentsBtn}
+              onPress={() => setShowReviewModal(true)}
+            >
+              <Text style={styles.viewCommentsText}>Rate Event</Text>
+              <Ionicons name="star-outline" size={20} color="#5A31F4" />
+            </TouchableOpacity>
+          </View>
         )}
       </ScrollView>
 
@@ -667,6 +901,61 @@ export default function EventDetailsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Review Modal */}
+      {!isDraft && (
+        <Modal
+          visible={showReviewModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowReviewModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.reviewMenu}>
+              <View style={styles.reviewHeader}>
+                <Text style={styles.optionsTitle}>Rate this Event</Text>
+                <TouchableOpacity onPress={() => setShowReviewModal(false)}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.starRow}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <TouchableOpacity key={star} onPress={() => setRating(star)}>
+                    <Ionicons 
+                      name={rating >= star ? "star" : "star-outline"} 
+                      size={40} 
+                      color={rating >= star ? "#FAB843" : "#ccc"} 
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TextInput
+                style={styles.reviewInput}
+                placeholder="Write your review here..."
+                multiline
+                numberOfLines={4}
+                value={reviewText}
+                onChangeText={setReviewText}
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity 
+                style={styles.submitReviewBtn} 
+                onPress={handleSubmitReview}
+                disabled={isSubmittingReview}
+              >
+                {isSubmittingReview ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.submitReviewText}>Submit Review</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {!isDraft && (
         <Modal
@@ -805,6 +1094,103 @@ export default function EventDetailsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <Modal
+        visible={showTicketModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => { setShowTicketModal(false); setTicketQuantities({}); }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, maxHeight: '80%' }}>
+            {/* Handle bar */}
+            <View style={{ width: 40, height: 4, backgroundColor: '#e0e0e0', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
+
+            <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: 20, color: '#1A1A1A', marginBottom: 4 }}>
+              Select Tickets
+            </Text>
+            <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 14, color: '#666', marginBottom: 20 }} numberOfLines={1}>
+              {event?.name}
+            </Text>
+
+            {(() => {
+              const ticketsToRender = event?.tickets?.length > 0 
+                ? event.tickets 
+                : [{
+                    _id: event?._id || "default",
+                    name: event?.isTicket ? "Standard Ticket" : "Free Entry",
+                    price: event?.ticketAmount || 0,
+                    description: "General Admission"
+                  }];
+
+              return (
+                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
+                  {ticketsToRender.map((ticket, idx) => (
+                    <View key={ticket._id || ticket.id || idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#1A1A1A' }}>{ticket.name}</Text>
+                        <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 13, color: ticket.price > 0 ? '#5A31F4' : '#22C55E', marginTop: 2 }}>
+                          {ticket.price > 0 ? `₦${ticket.price?.toLocaleString()}` : 'Free'}
+                        </Text>
+                        {ticket.description ? (
+                          <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#999', marginTop: 2 }} numberOfLines={2}>{ticket.description}</Text>
+                        ) : null}
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <TouchableOpacity
+                          onPress={() => updateTicketQuantity(ticket._id, -1)}
+                          style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3EDFF', justifyContent: 'center', alignItems: 'center' }}
+                        >
+                          <Ionicons name="remove" size={18} color="#5A31F4" />
+                        </TouchableOpacity>
+                        <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 16, color: '#1A1A1A', minWidth: 20, textAlign: 'center' }}>
+                          {ticketQuantities[ticket._id] || 0}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => updateTicketQuantity(ticket._id, 1)}
+                          style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#5A31F4', justifyContent: 'center', alignItems: 'center' }}
+                        >
+                          <Ionicons name="add" size={18} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              );
+            })()}
+
+            {/* Total */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 16 }}>
+              <Text style={{ fontFamily: 'Poppins_500Medium', fontSize: 15, color: '#666' }}>Total</Text>
+              <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: 22, color: '#1A1A1A' }}>
+                ₦{getTicketTotal().toLocaleString()}
+              </Text>
+            </View>
+
+            {/* Action Buttons (Unconditionally Rendered) */}
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => { setShowTicketModal(false); setTicketQuantities({}); }}
+                style={{ flex: 1, paddingVertical: 15, borderRadius: 14, borderWidth: 1.5, borderColor: '#E0E0E0', alignItems: 'center' }}
+                disabled={purchasingTickets}
+              >
+                <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#666' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handlePurchaseTickets}
+                style={{ flex: 2, paddingVertical: 15, borderRadius: 14, backgroundColor: '#5A31F4', alignItems: 'center', justifyContent: 'center' }}
+                disabled={purchasingTickets}
+              >
+                {purchasingTickets ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#fff' }}>Checkout</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -837,27 +1223,51 @@ const styles = StyleSheet.create({
     marginTop: 20,
     backgroundColor: "#5A31F4",
     paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 8,
   },
-  backButtonText: {
-    color: "#fff",
-    fontFamily: "Poppins_500Medium",
+  headerImage: {
+    width: "100%",
+    height: height * 0.4,
   },
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
     alignSelf: "flex-start",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    marginBottom: 10,
     borderWidth: 1,
+    marginBottom: 12,
+    gap: 6,
   },
   statusBadgeText: {
     fontFamily: "Poppins_600SemiBold",
     fontSize: 12,
+  },
+  backBtn: {
+    position: "absolute",
+    top: 50,
+    left: 20,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  eventDetails: {
+    padding: 20,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: "#fff",
+    marginTop: -30,
+  },
+  title: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 22,
+    color: "#333",
+    marginTop: 20,
+    marginHorizontal: 20,
   },
   mediaContainer: {
     width: "100%",
@@ -874,53 +1284,77 @@ const styles = StyleSheet.create({
   },
   expandIconContainer: {
     position: 'absolute',
-    top: 10,
+    bottom: 10,
     right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     padding: 8,
+    borderRadius: 20,
   },
-  eventDetails: {},
-  title: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 18,
-    color: "#222",
-    marginBottom: 6,
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  infoRow2: {
+    flexDirection: 'row',
+    gap: 15,
+    marginVertical: 15,
+  },
+  mapBox: {
+    backgroundColor: '#F3EDFF',
+    padding: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapText: {
+    fontFamily: 'Poppins_500Medium',
+    color: '#333',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  dateTime: {
+    fontFamily: 'Poppins_500Medium',
+    color: '#5A31F4',
+    fontSize: 14,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  interestedBtn: {
+    backgroundColor: '#5A31F4',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 30,
+  },
+  interestedText: {
+    color: '#fff',
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 16,
+  },
+  price: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 24,
+    color: '#333',
   },
   smalltitle: {
     fontFamily: "Poppins_600SemiBold",
-    fontSize: 14,
-    color: "#444",
-    marginBottom: 6,
-  },
-  caption: {
-    fontFamily: "Poppins_400Regular",
-    color: "#555",
-    fontSize: 12,
+    fontSize: 18,
+    color: "#333",
     marginBottom: 10,
   },
   desc: {
     fontFamily: "Poppins_400Regular",
     color: "#555",
     fontSize: 14,
-    marginBottom: 10,
-    marginTop: 8,
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 4,
-  },
-  userName: {
-    fontFamily: "Poppins_500Medium",
-    fontSize: 13,
-    color: "#333",
-  },
-  time: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 11,
-    color: "#999",
+    lineHeight: 22,
   },
   avatarContainer: {
     flexDirection: "row",
@@ -928,76 +1362,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 15,
     marginTop: 20,
+    paddingHorizontal: 20,
   },
   organizerName: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-  infoRow2: {
+  statsRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 20,
-    marginTop: 18,
-  },
-  dateTime: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 12,
-    color: "#666",
-  },
-  mapBox: {
-    backgroundColor: "#eee",
-    width: 60,
-    height: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 6,
-  },
-  mapText: {
-    fontSize: 12,
-    fontFamily: "Poppins_400Regular",
-    color: "#777",
-  },
-  priceRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginVertical: 10,
-  },
-  interestedBtn: {
-    backgroundColor: "#5A31F4",
-    paddingHorizontal: 15,
-    paddingVertical: 6,
-    borderRadius: 6,
-    width: width * 0.5,
-    height: 45,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  interestedText: {
-    color: "#fff",
-    fontFamily: "Poppins_500Medium",
-  },
-  price: {
-    fontFamily: "Poppins_600SemiBold",
-    color: "#FAB843",
-    fontSize: 14,
-    backgroundColor: "#FDECCD",
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#FAB843",
-  },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 5,
-    alignItems: "center",
-    borderBottomColor: "#eee",
-    borderBottomWidth: 1,
-    borderTopColor: "#eee",
-    borderTopWidth: 1,
-    paddingVertical: 10,
+    marginVertical: 15,
+    paddingHorizontal: 20,
   },
   statItem: {
     flexDirection: "row",
@@ -1005,68 +1382,87 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   statText: {
-    fontFamily: "Poppins_400Regular",
+    fontFamily: "Poppins_500Medium",
     color: "#555",
-    fontSize: 12,
+    fontSize: 14,
   },
   likesText: {
+    fontFamily: "Poppins_500Medium",
+    color: "#555",
+    fontSize: 14,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  emptyText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 18,
+    color: "#888",
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  backButton: {
+    backgroundColor: "#5A31F4",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: "#FFF",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 16,
+  },
+  loadingText: {
+    marginTop: 16,
     fontFamily: "Poppins_400Regular",
-    color: "#777",
-    fontSize: 12,
-    marginTop: 5,
+    color: "#6B7280",
   },
   replyAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#eee",
+    backgroundColor: "#F3F4F6",
   },
-  viewCommentsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 15,
-    borderTopWidth: 1,
-    borderTopColor: "#eee",
-    marginTop: 10,
-  },
-  viewCommentsText: {
-    fontFamily: "Poppins_500Medium",
-    fontSize: 14,
-    color: "#5A31F4",
+  caption: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
+    color: "#888",
+    marginBottom: 20,
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    paddingTop: 50,
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 15,
+    backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
-    backgroundColor: "#fff",
   },
   modalTitle: {
     fontFamily: "Poppins_600SemiBold",
-    fontSize: 18,
+    fontSize: 20,
     color: "#333",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
   optionsMenu: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingVertical: 20,
-    paddingHorizontal: 16,
+    padding: 20,
+    paddingBottom: 40,
   },
   optionsTitle: {
-    fontSize: 18,
     fontFamily: "Poppins_600SemiBold",
+    fontSize: 18,
     color: "#333",
     marginBottom: 20,
     textAlign: "center",
@@ -1074,111 +1470,121 @@ const styles = StyleSheet.create({
   optionItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    marginBottom: 10,
-    backgroundColor: "#f8f8f8",
-  },
-  statusOption: {
-    backgroundColor: "#fff3e0",
-  },
-  deleteOption: {
-    backgroundColor: "#fff5f5",
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: "#F9FAFB",
+    marginBottom: 12,
   },
   optionText: {
-    fontSize: 16,
     fontFamily: "Poppins_500Medium",
+    fontSize: 16,
     color: "#333",
+    marginLeft: 12,
   },
-  statusText: {
-    color: "#FF9800",
+  deleteOption: {
+    backgroundColor: "#FEF2F2",
   },
   deleteText: {
     color: "#ff4444",
   },
   cancelOption: {
-    paddingVertical: 15,
+    marginTop: 8,
+    paddingVertical: 16,
     alignItems: "center",
-    marginTop: 10,
   },
   cancelText: {
+    fontFamily: "Poppins_600SemiBold",
     fontSize: 16,
-    fontFamily: "Poppins_500Medium",
     color: "#666",
+  },
+  statusOption: {
+    backgroundColor: "#FFF3E0",
+  },
+  statusText: {
+    color: "#FF9800",
   },
   statusMenu: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 20,
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    maxHeight: height * 0.7,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "80%",
   },
   statusMenuHeader: {
-    marginBottom: 20,
-    paddingBottom: 15,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: "#F3F4F6",
   },
   statusMenuTitle: {
-    fontSize: 18,
     fontFamily: "Poppins_600SemiBold",
-    color: "#333",
-    marginBottom: 4,
+    fontSize: 18,
+    color: "#111827",
+    textAlign: "center",
   },
   statusMenuSubtitle: {
-    fontSize: 14,
     fontFamily: "Poppins_400Regular",
-    color: "#666",
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: 4,
   },
   statusList: {
-    maxHeight: height * 0.45,
+    padding: 20,
   },
   statusItem: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 10,
-    backgroundColor: "#f8f8f8",
-    borderWidth: 2,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#F9FAFB",
+    marginBottom: 12,
+    borderWidth: 1,
     borderColor: "transparent",
   },
   statusItemActive: {
-    backgroundColor: "#f0f0ff",
-    borderColor: "#5A31F4",
+    backgroundColor: "#F3F4F6",
+    borderColor: "#E5E7EB",
   },
   statusItemLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 16,
     flex: 1,
   },
   statusItemLabel: {
-    fontSize: 16,
     fontFamily: "Poppins_600SemiBold",
-    color: "#333",
+    fontSize: 16,
+    color: "#111827",
   },
   statusItemDescription: {
-    fontSize: 12,
     fontFamily: "Poppins_400Regular",
-    color: "#666",
+    fontSize: 12,
+    color: "#6B7280",
     marginTop: 2,
+    paddingRight: 16,
   },
-  // Full Screen Image Viewer Styles
+  viewCommentsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    marginTop: 10,
+    gap: 8,
+  },
+  viewCommentsText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 14,
+    color: "#5A31F4",
+  },
   imageViewerContainer: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.95)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   closeImageButton: {
-    position: "absolute",
+    position: 'absolute',
     top: 50,
     right: 20,
     zIndex: 10,
@@ -1186,27 +1592,192 @@ const styles = StyleSheet.create({
   },
   fullScreenImage: {
     width: width,
-    height: height * 0.8,
+    height: height * 0.7,
   },
   imageViewerInfo: {
-    position: "absolute",
+    position: 'absolute',
     bottom: 40,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    paddingHorizontal: 20,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
   },
   imageViewerText: {
-    color: "#fff",
+    fontFamily: 'Poppins_600SemiBold',
     fontSize: 18,
-    fontFamily: "Poppins_600SemiBold",
-    textAlign: "center",
-    marginBottom: 5,
+    color: '#fff',
+    textAlign: 'center',
   },
   imageViewerSubtext: {
     color: "#ccc",
     fontSize: 14,
     fontFamily: "Poppins_400Regular",
     textAlign: "center",
+  },
+  reviewMenu: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+  },
+  reviewHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  starRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 15,
+    marginBottom: 20,
+  },
+  reviewInput: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    padding: 15,
+    fontSize: 15,
+    fontFamily: "Poppins_400Regular",
+    color: "#333",
+    backgroundColor: "#F9FAFB",
+    minHeight: 120,
+    marginBottom: 20,
+  },
+  submitReviewBtn: {
+    backgroundColor: "#5A31F4",
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  submitReviewText: {
+    color: "#fff",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 16,
+  },
+
+  // ── Vendor Section ────────────────────────────────────────────
+  vendorSection: {
+    marginTop: 24,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  vendorSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  vendorCount: {
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 13,
+    color: '#5A31F4',
+    backgroundColor: '#F0EBFF',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  vendorCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  vendorCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  vendorAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  vendorAvatarFallback: {
+    backgroundColor: '#E8DBFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  vendorAvatarLetter: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 20,
+    color: '#5A31F4',
+  },
+  vendorCardInfo: { flex: 1 },
+  vendorCardName: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+    color: '#111827',
+  },
+  vendorCardCategory: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  statusBadgeText: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 11,
+  },
+  vendorEmptyText: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 13,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
+
+  // Hire a Vendor CTA
+  hireVendorCta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    backgroundColor: '#F0EBFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  hireVendorCtaLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  hireVendorIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E8DBFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hireVendorTitle: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+    color: '#5A31F4',
+  },
+  hireVendorSubtitle: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 12,
+    color: '#7C3AED',
+    marginTop: 2,
   },
 });

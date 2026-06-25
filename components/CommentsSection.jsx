@@ -24,8 +24,6 @@ export default function CommentsSection({ eventId }) {
   const [submitting, setSubmitting] = useState(false);
   const flatListRef = useRef(null);
   
-  console.log('the event id', eventId);
-  
   useEffect(() => {
     if (eventId) {
       fetchComments();

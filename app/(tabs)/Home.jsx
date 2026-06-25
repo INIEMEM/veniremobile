@@ -10,14 +10,17 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  StatusBar,
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import EventsScreen from "../../components/EventsScreen";
+import ReelsScreen from "../../components/ReelsScreen";
 import FilterModal from "../../components/FilterModal";
 import { useAuth } from "../../context/AuthContext";
 import { truncateText } from "../../utils/truncateText";
+import MOCK_REELS from "../../constants/reelsMockData";
 
 const { width, height } = Dimensions.get("window");
 
@@ -27,7 +30,14 @@ export default function Home() {
   const [selectedTab, setSelectedTab] = useState("events");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState("all");
+  const [selectedFilter, setSelectedFilter] = useState({
+    status: "all",
+    distance: "any",
+    price: "all",
+    date: "any"
+  });
+  const [reelsMode, setReelsMode] = useState(false);
+  const [mapMode, setMapMode] = useState(false);
   const router = useRouter();
   const toggleAnim = useRef(new Animated.Value(0)).current;
   // Subtle animations
@@ -46,13 +56,10 @@ export default function Home() {
       const storedUser = await AsyncStorage.getItem("user");
       const guestStatus = await AsyncStorage.getItem("isGuest");
       
-      console.log("guest status in Home:", guestStatus);
-      
       setIsGuest(guestStatus === "true");
       
       if (token && storedUser && guestStatus !== "true") {
         setUser(JSON.parse(storedUser));
-        console.log("User loaded in Home:", JSON.parse(storedUser));
       } else {
         setUser(null);
       }
@@ -159,112 +166,190 @@ export default function Home() {
     setSelectedFilter(filter);
   };
 
-  console.log('the profile image', user?.profile_picture)
+  const getGreeting = () => {
+    const hour = new Date().getHours()
+    if (hour < 12) return "Good morning,"
+    if (hour < 17) return "Good afternoon,"
+    return "Good evening,"
+  }
+
   return (
-    <View style={styles.container}>
-      {/* ===== HEADER SECTION ===== */}
-      <Animated.View
-        style={[
-          styles.header,
-          {
-            transform: [{ translateY: headerY }],
-            opacity: headerOpacity,
-          },
-        ]}
-      >
-        <View style={styles.userInfo}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: reelsMode ? "#000000" : "#F8F8F8",
+          paddingTop: reelsMode
+            ? 0
+            : Platform.OS === "ios" 
+              ? 60 
+              : (StatusBar.currentHeight || 40) + 10,
+        },
+      ]}
+    >
+      {/* Always visible — reels toggle only */}
+      {reelsMode && (
+        <View style={styles.reelsModeHeader}>
           <TouchableOpacity
-            onPress={() =>
-              isGuest
-                ? handleLoginPrompt()
-                : router.push(`/profile/${user?._id}`)
-            }
+            style={styles.reelsBackBtn}
+            onPress={() => setReelsMode(false)}
             activeOpacity={0.7}
           >
-            <Image
-              source={
-                user?.profile_picture
-                  ? { uri: user?.profile_picture }
-                  : require("../../assets/default-avatar.jpg")
-              }
-              style={styles.avatar}
+            <Ionicons 
+              name="chevron-back" 
+              size={20} 
+              color="#FFFFFF" 
             />
           </TouchableOpacity>
-          <View>
-            <Text style={styles.welcomeText}>
-              {isGuest ? "Exploring as " : "Welcome "}
-              <Text style={styles.userName}>
-                {user ? truncateText(user.firstname, 8) : "Guest"}
-              </Text>
-            </Text>
-          </View>
         </View>
+      )}
 
-        {/* Toggle + Support/Login */}
-        <View style={styles.headerRight}>
-          {isGuest ? (
+      {/* ===== HEADER SECTION ===== */}
+      {!reelsMode && (
+        <Animated.View
+          style={[
+            styles.header,
+            {
+              transform: [{ translateY: headerY }],
+              opacity: headerOpacity,
+            },
+          ]}
+        >
+          <View style={styles.userInfo}>
             <TouchableOpacity
-              style={styles.loginButton}
-              onPress={handleLoginPrompt}
-              activeOpacity={0.8}
+              onPress={() =>
+                isGuest
+                  ? handleLoginPrompt()
+                  : router.push(`/profile/${user?._id}`)
+              }
+              activeOpacity={0.7}
             >
-              <Ionicons name="log-in-outline" size={18} color="#5A31F4" />
-              <Text style={styles.loginButtonText}>Login</Text>
+              <Image
+                source={
+                  user?.profile_picture
+                    ? { uri: user?.profile_picture }
+                    : require("../../assets/default-avatar.jpg")
+                }
+                style={styles.avatar}
+              />
             </TouchableOpacity>
-          ) : (
-            <>
-              <View style={styles.toggleContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleButton,
-                    selectedTab === "events" && styles.activeToggle,
-                  ]}
-                  onPress={() => setSelectedTab("events")}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      selectedTab === "events" && styles.activeToggleText,
-                    ]}
-                  >
-                    Events
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.toggleButton,
-                    selectedTab === "places" && styles.activeToggle,
-                  ]}
-                  onPress={() => setSelectedTab("places")}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      selectedTab === "places" && styles.activeToggleText,
-                    ]}
-                  >
-                    Places
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                style={styles.supportIcon}
-                onPress={handleSupport}
-                activeOpacity={0.7}
+            <View style={styles.userTextBlock}>
+              <Text
+                style={styles.greetingLabel}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                allowFontScaling={false}
               >
-                <Ionicons name="headset-outline" size={24} color="#666" />
+                {getGreeting()}
+              </Text>
+              <Text
+                style={styles.userNameLarge}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                allowFontScaling={false}
+              >
+                {isGuest ? "Explorer 👋" : 
+                  (user ? truncateText(user.firstname, 10) : "Guest")}
+              </Text>
+            </View>
+          </View>
+
+          {/* Toggle + Support/Login */}
+          <View style={styles.headerRight}>
+            {isGuest ? (
+              <TouchableOpacity
+                style={styles.loginButton}
+                onPress={handleLoginPrompt}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="log-in-outline" size={18} color="#5A31F4" />
+                <Text style={styles.loginButtonText}>Login</Text>
               </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </Animated.View>
+            ) : (
+              <>
+                <View style={styles.toggleContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.toggleButton,
+                      selectedTab === "events" && 
+                        !reelsMode && styles.activeToggle,
+                    ]}
+                    onPress={() => {
+                      setSelectedTab("events")
+                      setReelsMode(false)
+                      setMapMode(false)
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.toggleText,
+                        selectedTab === "events" && 
+                          !reelsMode && styles.activeToggleText,
+                      ]}
+                    >
+                      Events
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.toggleButton,
+                      selectedTab === "places" && 
+                        !reelsMode && styles.activeToggle,
+                    ]}
+                    onPress={() => {
+                      setSelectedTab("places")
+                      setReelsMode(false)
+                      setMapMode(false)
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.toggleText,
+                        selectedTab === "places" && 
+                          !reelsMode && styles.activeToggleText,
+                      ]}
+                    >
+                      Places
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.supportIcon}
+                  onPress={() => router.push("/Notifications")}
+                  activeOpacity={0.7}
+                >
+                  <View style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    backgroundColor: "#F3F4F6",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    position: "relative",
+                  }}>
+                    <Ionicons name="notifications-outline" 
+                      size={22} color="#333" />
+                    <View style={{
+                      position: "absolute",
+                      top: 0, right: 0,
+                      width: 8, height: 8,
+                      borderRadius: 4,
+                      backgroundColor: "#FF3B30"
+                    }} />
+                  </View>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </Animated.View>
+      )}
 
       {/* ===== GUEST BANNER ===== */}
-      {isGuest && (
+      {!reelsMode && isGuest && (
         <Animated.View
           style={[
             styles.guestBanner,
@@ -274,7 +359,13 @@ export default function Home() {
             },
           ]}
         >
-          <Ionicons name="information-circle-outline" size={22} color="#5A31F4" />
+          <View style={{
+            width: 44, height: 44, borderRadius: 22,
+            backgroundColor: "#EDE4FF",
+            justifyContent: "center", alignItems: "center"
+          }}>
+            <Ionicons name="flash-outline" size={22} color="#5A31F4" />
+          </View>
           <View style={styles.guestBannerTextContainer}>
             <Text style={styles.guestBannerTitle}>Browsing as Guest</Text>
             <Text style={styles.guestBannerSubtitle}>
@@ -291,56 +382,93 @@ export default function Home() {
       )}
 
       {/* ===== SEARCH BAR + FILTER ===== */}
-      <Animated.View
-        style={[
-          styles.searchRow,
-          {
-            transform: [{ translateY: searchY }],
-            opacity: searchOpacity,
-          },
-        ]}
-      >
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={20} color="#999" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder={`Search ${selectedTab}...`}
-            placeholderTextColor="#999"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
-              <Ionicons name="close-circle" size={20} color="#999" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Filter Button */}
-        <TouchableOpacity 
+      {!reelsMode && (
+        <Animated.View
           style={[
-            styles.filterButton,
-            selectedFilter !== "all" && styles.filterButtonActive
-          ]} 
-          activeOpacity={0.7}
-          onPress={handleFilterPress}
+            styles.searchRow,
+            {
+              transform: [{ translateY: searchY }],
+              opacity: searchOpacity,
+            },
+          ]}
         >
-          <Ionicons 
-            name="options-outline" 
-            size={22} 
-            color={selectedFilter !== "all" ? "#5A31F4" : "#666"} 
-          />
-          {selectedFilter !== "all" && (
-            <View style={styles.filterBadge} />
-          )}
-        </TouchableOpacity>
-      </Animated.View>
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search-outline" size={20} color="#999" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={`Search ${selectedTab}...`}
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <Ionicons name="close-circle" size={20} color="#999" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Map Mode Button */}
+          {/* <TouchableOpacity 
+            style={[styles.filterButton, mapMode && styles.filterButtonActive]} 
+            activeOpacity={0.7}
+            onPress={() => {
+              setSelectedTab("events");
+              setMapMode(!mapMode);
+              setReelsMode(false);
+            }}
+          >
+            <Ionicons 
+              name="map-outline" 
+              size={22} 
+              color={mapMode ? "#5A31F4" : "#666"} 
+            />
+          </TouchableOpacity> */}
+
+          {/* Reels Mode Button */}
+          <TouchableOpacity 
+            style={styles.filterButton} 
+            activeOpacity={0.7}
+            onPress={() => {
+              setSelectedTab("events");
+              setReelsMode(true);
+              setMapMode(false);
+            }}
+          >
+            <Ionicons 
+              name="play-circle-outline" 
+              size={24} 
+              color="#5A31F4" 
+            />
+          </TouchableOpacity>
+
+          {/* Filter Button */}
+          <TouchableOpacity 
+            style={[
+              styles.filterButton,
+              (selectedFilter.status !== "all" || selectedFilter.distance !== "any" || selectedFilter.price !== "all" || selectedFilter.date !== "any") && styles.filterButtonActive
+            ]} 
+            activeOpacity={0.7}
+            onPress={handleFilterPress}
+          >
+            <Ionicons 
+              name="options-outline" 
+              size={22} 
+              color={(selectedFilter.status !== "all" || selectedFilter.distance !== "any" || selectedFilter.price !== "all" || selectedFilter.date !== "any") ? "#5A31F4" : "#666"} 
+            />
+            {(selectedFilter.status !== "all" || selectedFilter.distance !== "any" || selectedFilter.price !== "all" || selectedFilter.date !== "any") && (
+              <View style={styles.filterBadge} />
+            )}
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
       {/* ===== CONTENT AREA ===== */}
       <Animated.View
         style={[
           styles.contentArea,
+          reelsMode && styles.reelsContentArea,
           {
             transform: [{ translateY: contentY }],
             opacity: contentOpacity,
@@ -348,11 +476,20 @@ export default function Home() {
         ]}
       >
         {selectedTab === "events" ? (
-          <EventsScreen 
-            isExploreMode={isGuest} 
-            searchQuery={searchQuery}
-            filterStatus={selectedFilter}
-          />
+          reelsMode ? (
+            <ReelsScreen
+              events={MOCK_REELS}
+              isExploreMode={isGuest}
+              onInterested={() => {}}
+            />
+          ) : (
+            <EventsScreen 
+              isExploreMode={isGuest} 
+              searchQuery={searchQuery}
+              filterStatus={selectedFilter}
+              mapMode={mapMode}
+            />
+          )
         ) : (
           <View style={styles.comingSoonContainer}>
             <Text style={styles.comingSoonText}>
@@ -376,30 +513,47 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: Platform.OS === "ios" ? 60 : 50,
-    paddingHorizontal: width * 0.03,
-    backgroundColor: "#fff",
+    paddingTop: Platform.OS === "ios" 
+      ? 60 
+      : (StatusBar.currentHeight || 40) + 10,
+    backgroundColor: "#F8F8F8",
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     marginBottom: height * 0.015,
+    flexWrap: "nowrap",
+    paddingHorizontal: 16,
+    gap: 8,
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Math.min(width * 0.025, 10),
+    gap: 4,
+    flexShrink: 1,
+    justifyContent: "flex-end",
+    minWidth: 0,
   },
   userInfo: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Math.min(width * 0.02, 8),
+    gap: 7,
+    flex: 1,
+    minWidth: 0,
+    maxWidth: width * 0.44,
+  },
+  userTextBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   avatar: {
-    width: Math.min(width * 0.1, 40),
-    height: Math.min(width * 0.1, 40),
-    borderRadius: Math.min(width * 0.05, 20),
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 2,
+    borderColor: "#5A31F4",
+    flexShrink: 0,
   },
   welcomeText: {
     fontSize: Math.min(width * 0.037, 14),
@@ -409,6 +563,19 @@ const styles = StyleSheet.create({
   },
   userName: {
     color: "#FAB843",
+  },
+  greetingLabel: {
+    fontSize: 10,
+    fontFamily: "Poppins_400Regular",
+    color: "#999",
+    includeFontPadding: false,
+  },
+  userNameLarge: {
+    fontSize: 14,
+    fontFamily: "Poppins_700Bold",
+    color: "#333",
+    marginTop: 0,
+    includeFontPadding: false,
   },
   loginButton: {
     flexDirection: "row",
@@ -432,48 +599,69 @@ const styles = StyleSheet.create({
     borderColor: "#FAB843",
     borderWidth: 1,
     overflow: "hidden",
+    flexShrink: 1,
+    maxWidth: 138,
   },
   toggleButton: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Math.min(height * 0.01, 6),
-    paddingHorizontal: Math.min(width * 0.03, 8),
+    paddingVertical: 7,
+    paddingHorizontal: 11,
     borderRadius: 20,
-    minWidth: width * 0.1,
+    minWidth: 66,
   },
   toggleText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 12,
     color: "#6B7280",
-    fontWeight: "500",
-    fontFamily: "Poppins_400Regular",
-    fontSize: Math.min(width * 0.032, 12),
+    includeFontPadding: false,
   },
   activeToggle: {
     backgroundColor: "#FAB843",
   },
   activeToggleText: {
     color: "#fff",
+    includeFontPadding: false,
+  },
+  reelsToggleActive: {
+    backgroundColor: "#5A31F4",
+  },
+  reelsModeHeader: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : (StatusBar.currentHeight || 40) + 10,
+    left: 16,
+    zIndex: 100,
+  },
+  reelsBackBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   supportIcon: {
     backgroundColor: "#F3F4F6",
-    padding: Math.min(width * 0.02, 8),
     borderRadius: 100,
-    width: Math.min(width * 0.1, 40),
-    height: Math.min(width * 0.1, 40),
+    width: 38,
+    height: 38,
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
   },
   guestBanner: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f8f4ff",
-    paddingHorizontal: width * 0.04,
-    paddingVertical: 12,
-    marginTop: 10,
-    marginBottom: 5,
-    borderRadius: 10,
-    gap: 10,
+    backgroundColor: "#F3EDFF",
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#e8dbff",
+    borderColor: "#E8DBFF",
+    padding: 14,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 0,
+    gap: 10,
   },
   guestBannerTextContainer: {
     flex: 1,
@@ -481,7 +669,7 @@ const styles = StyleSheet.create({
   guestBannerTitle: {
     fontSize: Math.min(width * 0.037, 14),
     fontFamily: "Poppins_600SemiBold",
-    color: "#5A31F4",
+    color: "#333",
     marginBottom: 2,
   },
   guestBannerSubtitle: {
@@ -492,9 +680,9 @@ const styles = StyleSheet.create({
   },
   guestBannerButton: {
     backgroundColor: "#5A31F4",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   guestBannerButtonText: {
     fontSize: Math.min(width * 0.032, 12),
@@ -505,38 +693,44 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginTop: height * 0.015,
+    paddingHorizontal: 16,
     gap: Math.min(width * 0.025, 10),
   },
   searchContainer: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f8f8f8",
-    borderRadius: 10,
-    paddingHorizontal: Math.min(width * 0.04, 15),
-    height: Math.min(height * 0.06, 48),
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E8DBFF",
+    paddingHorizontal: 14,
+    height: 48,
     gap: 8,
   },
   searchInput: {
     flex: 1,
-    marginLeft: 4,
-    fontSize: Math.min(width * 0.037, 14),
+    fontSize: 14,
     color: "#333",
     fontFamily: "Poppins_400Regular",
+    includeFontPadding: false,
+    paddingVertical: 0,
   },
   filterButton: {
-    backgroundColor: "#f8f8f8",
-    width: Math.min(height * 0.06, 48),
-    height: Math.min(height * 0.06, 48),
-    borderRadius: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E8DBFF",
+    backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
     position: "relative",
   },
   filterButtonActive: {
-    backgroundColor: "#f8f4ff",
-    borderWidth: 1,
-    borderColor: "#e8dbff",
+    backgroundColor: "#F3EDFF",
+    borderColor: "#5A31F4",
   },
   filterBadge: {
     position: "absolute",
@@ -549,7 +743,10 @@ const styles = StyleSheet.create({
   },
   contentArea: {
     flex: 1,
-    marginTop: height * 0.02,
+    marginTop: 12,
+  },
+  reelsContentArea: {
+    marginTop: 0,
   },
   comingSoonContainer: {
     flex: 1,

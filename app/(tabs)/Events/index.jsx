@@ -15,6 +15,7 @@ import api from '../../../utils/axiosInstance';
 const { width, height } = Dimensions.get('window');
 import { useAuth } from '../../../context/AuthContext';
 import ExploreEvents from '../../../components/ExploreEvents';
+import TicketList from '../../../components/TicketList';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 
@@ -30,7 +31,7 @@ export default function Events() {
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const fabScale = useRef(new Animated.Value(0)).current;
 
-  const tabs = ['My Events', 'Tickets', 'Draft', 'Verification'];
+  const tabs = ['My Events', 'Tickets', 'Draft', 'Interested', 'Bookmarked'];
 
   useEffect(() => {
     // Animate elements
@@ -62,6 +63,14 @@ export default function Events() {
   const fetchEventsByTab = async () => {
     try {
       setLoading(true);
+
+      if (activeTab === 'Tickets') {
+        // We use our new TicketList component with mock data
+        setEvents(["dummy"]); // Bypass empty state check
+        setLoading(false);
+        return;
+      }
+
       const token = await AsyncStorage.getItem('token');
       
       let url = '';
@@ -72,27 +81,39 @@ export default function Events() {
 
       switch (activeTab) {
         case 'My Events':
-          url = `/event/key?value=${user._id}&key=userId`;
+          url = `/event/key?value=${user?._id}&key=userId`;
           break;
         case 'Draft':
           url = '/event/draft';
           break;
-        case 'Tickets':
-          url = '/event/tickets';
-          break;
-        case 'Verification':
-          url = '/event/verification';
+        case 'Interested':
+        case 'Bookmarked':
+          // Fetch all events for global filter
+          url = '/event';
           break;
         default:
-          url = `/event/key?value=${user._id}&key=userId`;
+          url = `/event/key?value=${user?._id}&key=userId`;
       }
 
       const response = await api.get(url, config);
 
       if (response.data.success) {
-        const data = response.data.data;
-        const eventsData = Array.isArray(data) ? data : [data];
-        setEvents(eventsData);
+        let allEvents = Array.isArray(response.data.data) ? response.data.data : [response.data.data];
+
+        // Apply profile-based filters if needed
+        if (activeTab === 'Interested') {
+          // Keep identical logic from Profile page:
+          allEvents = allEvents.filter(e => 
+            e.eventInterests?.some(interest => interest.userId === user?._id) ||
+            (e.totalInterest > 0 && e.eventInterests?.length > 0)
+          );
+        } else if (activeTab === 'Bookmarked') {
+          allEvents = allEvents.filter(e => 
+            e.bookmark?.includes(user?._id) || e.hasBookmarked
+          );
+        }
+
+        setEvents(allEvents);
       } else {
         setEvents([]);
       }
@@ -187,8 +208,10 @@ export default function Events() {
                 ? 'You have no draft events yet.'
                 : activeTab === 'Tickets'
                 ? 'You have no tickets yet.'
-                : activeTab === 'Verification'
-                ? 'No events pending verification.'
+                : activeTab === 'Interested'
+                ? 'No events you are interested in yet. Click "Interested" on events to see them here!'
+                : activeTab === 'Bookmarked'
+                ? 'No bookmarked events yet. Bookmark events to save them for later!'
                 : 'You have no event records yet. Any event you host'}
             </Text>
             <Text style={styles.emptyText}>
@@ -207,12 +230,17 @@ export default function Events() {
             contentContainerStyle={styles.eventsListContainer}
             showsVerticalScrollIndicator={false}
           >
-            <ExploreEvents 
-              userId={activeTab === 'My Events' ? user._id : null}
-              events={events}
-              isExploreMode={false}
-              isDraftMode={activeTab === 'Draft'} // Pass isDraftMode prop
-            />
+            {activeTab === 'Tickets' ? (
+              <TicketList />
+            ) : (
+              <ExploreEvents 
+                userId={activeTab === 'My Events' ? user?._id : null}
+                events={events}
+                isExploreMode={false}
+                isDraftMode={activeTab === 'Draft'} // Pass isDraftMode prop
+                embedded
+              />
+            )}
           </ScrollView>
         )}
       </View>

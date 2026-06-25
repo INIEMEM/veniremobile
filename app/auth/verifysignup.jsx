@@ -1,33 +1,37 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { createRef, useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Image,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   Dimensions,
   Animated,
+  Clipboard,
 } from "react-native";
 import { useRouter } from "expo-router";
 import api from "../../utils/axiosInstance";
 import Toast from "react-native-toast-message";
 import CustomLoader from "../../components/CustomFormLoader";
 import { useAuth } from "../../context/AuthContext";
+import { Ionicons } from "@expo/vector-icons";
 
 const { width, height } = Dimensions.get("window");
+const OTP_BOX_SIZE = Math.min((width - 80) / 6, 52);
 
 export default function ResetPasswordScreen() {
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-  const [timer, setTimer] = useState(120);
+  const [timer, setTimer] = useState(30);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(0);
   const router = useRouter();
   const { loggedEmail } = useAuth();
-  const inputRefs = useRef([]);
+  const inputRefs = useRef([...Array(6)].map(() => createRef()));
+  const lastSubmittedCode = useRef("");
 
   // Animations
   const logoScale = useRef(new Animated.Value(0.5)).current;
@@ -109,39 +113,81 @@ export default function ResetPasswordScreen() {
 
   useEffect(() => {
     if (timer > 0) {
-      const countdown = setTimeout(() => setTimer(timer - 1), 1000);
-      return () => clearTimeout(countdown);
+      const countdown = setInterval(() => {
+        setTimer((currentTimer) => Math.max(currentTimer - 1, 0));
+      }, 1000);
+      return () => clearInterval(countdown);
     }
   }, [timer]);
+
+  useEffect(() => {
+    const code = otp.join("");
+
+    if (code.length === 6 && code !== lastSubmittedCode.current && !loading) {
+      const submitDelay = setTimeout(() => {
+        lastSubmittedCode.current = code;
+        handleProceed(code);
+      }, 300);
+
+      return () => clearTimeout(submitDelay);
+    }
+  }, [otp, loading]);
 
   const handleChange = (text, index) => {
     // Only allow numbers
     if (!/^\d*$/.test(text)) return;
 
+    const digit = text.slice(-1);
     const newOtp = [...otp];
-    newOtp[index] = text;
+    newOtp[index] = digit;
     setOtp(newOtp);
 
     // Auto-focus next input
-    if (text && index < 5) {
-      inputRefs.current[index + 1]?.focus();
+    if (digit && index < 5) {
+      inputRefs.current[index + 1].current?.focus();
     }
   };
 
   const handleKeyPress = (e, index) => {
     // Handle backspace
     if (e.nativeEvent.key === "Backspace" && !otp[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
+      const newOtp = [...otp];
+      newOtp[index - 1] = "";
+      setOtp(newOtp);
+      inputRefs.current[index - 1].current?.focus();
     }
   };
 
-  const handleProceed = async () => {
-    const code = otp.join("");
+  const handlePasteCode = async () => {
+    const text = await Clipboard.getString();
+    const digits = text.replace(/\D/g, "").slice(0, 6);
+
+    if (digits.length > 0) {
+      const newOtp = ["", "", "", "", "", ""];
+
+      digits.split("").forEach((digit, index) => {
+        newOtp[index] = digit;
+      });
+
+      setOtp(newOtp);
+
+      if (digits.length === 6) {
+        inputRefs.current.forEach((inputRef) => inputRef.current?.blur());
+      } else {
+        inputRefs.current[digits.length].current?.focus();
+      }
+    }
+  };
+
+  const handleProceed = async (overrideCode) => {
+    const code = overrideCode || otp.join("");
 
     if (code.length < 6) {
       Toast.show({ type: "error", text1: "Please enter the 6-digit OTP" });
       return;
     }
+
+    lastSubmittedCode.current = code;
 
     try {
       setLoading(true);
@@ -163,8 +209,10 @@ export default function ResetPasswordScreen() {
       setResending(true);
       await api.post("/auth/sendotp", { email: loggedEmail });
       Toast.show({ type: "success", text1: "OTP resent successfully" });
-      setTimer(120);
+      setTimer(30);
       setOtp(["", "", "", "", "", ""]); // Clear OTP inputs
+      lastSubmittedCode.current = "";
+      inputRefs.current[0].current?.focus();
     } catch (error) {
       Toast.show({
         type: "error",
@@ -177,9 +225,7 @@ export default function ResetPasswordScreen() {
   };
 
   const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    return `${seconds}s`;
   };
 
   return (
@@ -188,122 +234,110 @@ export default function ResetPasswordScreen() {
       style={styles.container}
     >
       {loading && <CustomLoader />}
+      <View style={styles.topHeader} pointerEvents="none">
+        <Ionicons name="shield-checkmark-outline" size={48} color="#fff" />
+        <Text style={styles.headerTitle}>Verify Your Email</Text>
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
-        
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Enter the 6-digit code</Text>
+          <Text style={styles.cardSubtitle}>We sent a verification code to</Text>
+          <Text style={styles.emailText}>{loggedEmail}</Text>
 
-        {/* Logo Section */}
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              transform: [{ scale: logoScale }],
-              opacity: logoOpacity,
-            },
-          ]}
-        >
-          <Image
-            source={require("../../assets/splash.png")}
-            style={styles.logo}
-          />
-        </Animated.View>
-
-        {/* Header Section */}
-        <Animated.View
-          style={[
-            styles.headerSection,
-            {
-              transform: [{ translateY: headerY }],
-              opacity: headerOpacity,
-            },
-          ]}
-        >
-          <Text style={styles.appName}>Venire</Text>
-          <Text style={styles.title}>OTP Verification</Text>
-          <Text style={styles.caption}>
-            Enter the six-digit code sent to your email
-          </Text>
-        </Animated.View>
-
-        {/* OTP Input Section */}
-        <Animated.View
-          style={[
-            styles.otpSection,
-            {
-              transform: [{ translateY: otpY }],
-              opacity: otpOpacity,
-            },
-          ]}
-        >
-          {/* Custom OTP Inputs */}
-          <View style={styles.otpContainer}>
-            {otp.map((digit, index) => (
-              <TextInput
-                key={index}
-                ref={(ref) => (inputRefs.current[index] = ref)}
-                style={styles.otpInput}
-                value={digit}
-                onChangeText={(text) => handleChange(text, index)}
-                onKeyPress={(e) => handleKeyPress(e, index)}
-                keyboardType="number-pad"
-                maxLength={1}
-                selectTextOnFocus
-                autoFocus={index === 0}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.timerText}>
-            Code will expire in {formatTime(timer)}
-          </Text>
-        </Animated.View>
-
-        {/* Button Section */}
-        <Animated.View
-          style={[
-            styles.buttonsContainer,
-            {
-              transform: [{ translateY: buttonY }],
-              opacity: buttonOpacity,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={[styles.button, loading && { opacity: 0.6 }]}
-            onPress={handleProceed}
-            disabled={loading}
-            activeOpacity={0.8}
+          {/* OTP Input Section */}
+          <Animated.View
+            style={[
+              styles.otpSection,
+              {
+                transform: [{ translateY: otpY }],
+                opacity: otpOpacity,
+              },
+            ]}
           >
-            <Text style={styles.buttonText}>
-              {loading ? "Verifying..." : "Proceed"}
-            </Text>
-          </TouchableOpacity>
+            {/* Custom OTP Inputs */}
+            <View style={styles.otpContainer}>
+              {otp.map((digit, index) => (
+                <TextInput
+                  key={index}
+                  ref={inputRefs.current[index]}
+                  style={[
+                    styles.otpInput,
+                    digit && styles.otpInputFilled,
+                    focusedIndex === index && styles.otpInputFocused,
+                  ]}
+                  value={digit}
+                  onChangeText={(text) => handleChange(text, index)}
+                  onKeyPress={(e) => handleKeyPress(e, index)}
+                  onFocus={() => setFocusedIndex(index)}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  selectTextOnFocus
+                  autoFocus={index === 0}
+                />
+              ))}
+            </View>
 
-          <View style={styles.resendContainer}>
-            <Text style={styles.resendText}>Didn't get an OTP? </Text>
             <TouchableOpacity
-              onPress={timer === 0 && !resending ? handleResend : null}
-              disabled={timer > 0 || resending}
-              activeOpacity={0.7}
+              style={styles.pasteButton}
+              onPress={handlePasteCode}
+              activeOpacity={0.75}
             >
-              <Text
-                style={[
-                  styles.resendLink,
-                  (timer > 0 || resending) && { color: "#999" },
-                ]}
+              <Ionicons name="clipboard-outline" size={16} color="#5A31F4" />
+              <Text style={styles.pasteButtonText}>Paste code</Text>
+            </TouchableOpacity>
+
+            <View style={styles.resendContainer}>
+              <Text style={styles.resendText}>Didn't receive a code? </Text>
+              <TouchableOpacity
+                onPress={timer === 0 && !resending ? handleResend : null}
+                disabled={timer > 0 || resending}
+                activeOpacity={0.7}
               >
-                {resending
-                  ? "Resending..."
-                  : timer > 0
-                  ? `Resend in ${formatTime(timer)}`
-                  : "Resend OTP"}
+                <Text
+                  style={[
+                    styles.resendLink,
+                    (timer > 0 || resending) && styles.resendLinkDisabled,
+                  ]}
+                >
+                  {resending
+                    ? "Resending..."
+                    : timer > 0
+                    ? `Resend in ${formatTime(timer)}`
+                    : "Resend"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+
+          {/* Button Section */}
+          <Animated.View
+            style={[
+              styles.buttonsContainer,
+              {
+                transform: [{ translateY: buttonY }],
+                opacity: buttonOpacity,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={[
+                styles.button,
+                (loading || otp.join("").length < 6) && styles.buttonDisabled,
+              ]}
+              onPress={() => handleProceed()}
+              disabled={loading || otp.join("").length < 6}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? "Verifying..." : "Verify"}
               </Text>
             </TouchableOpacity>
-          </View>
-        </Animated.View>
+          </Animated.View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -312,14 +346,41 @@ export default function ResetPasswordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#F8F4FF",
+  },
+  topHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    backgroundColor: "#5A31F4",
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    color: "#fff",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 20,
+    marginTop: 10,
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: width * 0.06,
-    paddingTop: Platform.OS === "ios" ? 60 : 40,
     paddingBottom: 30,
-    justifyContent: "center",
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    marginHorizontal: 20,
+    marginTop: 160,
+    padding: 28,
+    shadowColor: "#5A31F4",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 8,
   },
   logoContainer: {
     alignItems: "center",
@@ -360,32 +421,64 @@ const styles = StyleSheet.create({
   },
   otpSection: {
     width: "100%",
-    marginBottom: height * 0.03,
+    marginTop: 28,
+    marginBottom: 20,
   },
   otpContainer: {
     flexDirection: "row",
-    justifyContent: "center",
-    gap: Math.min(width * 0.025, 10),
-    marginBottom: 20,
+    justifyContent: "space-between",
+    columnGap: 8,
   },
   otpInput: {
-    width: Math.min(width * 0.13, 50),
-    height: Math.min(width * 0.14, 55),
-    borderWidth: 2,
-    borderColor: "#5A31F4",
-    borderRadius: 10,
+    width: OTP_BOX_SIZE,
+    height: OTP_BOX_SIZE,
+    maxWidth: 52,
+    borderWidth: 1.5,
+    borderColor: "#E8DBFF",
+    borderRadius: 12,
     textAlign: "center",
-    fontSize: Math.min(width * 0.053, 20),
-    fontWeight: "600",
+    fontSize: 22,
     color: "#333",
-    fontFamily: "Poppins_400Regular",
+    fontFamily: "Poppins_700Bold",
     backgroundColor: "#fff",
   },
-  timerText: {
+  otpInputFilled: {
+    borderColor: "#22C55E",
+  },
+  otpInputFocused: {
+    borderColor: "#5A31F4",
+  },
+  cardTitle: {
+    color: "#333",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 20,
     textAlign: "center",
-    color: "#555",
+  },
+  cardSubtitle: {
+    color: "#666",
     fontFamily: "Poppins_400Regular",
-    fontSize: Math.min(width * 0.037, 14),
+    fontSize: 14,
+    marginTop: 12,
+    textAlign: "center",
+  },
+  emailText: {
+    color: "#5A31F4",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 14,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  pasteButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    marginTop: 16,
+  },
+  pasteButtonText: {
+    color: "#5A31F4",
+    fontFamily: "Poppins_500Medium",
+    fontSize: 13,
+    marginLeft: 6,
   },
   buttonsContainer: {
     width: "100%",
@@ -394,24 +487,22 @@ const styles = StyleSheet.create({
   button: {
     backgroundColor: "#5A31F4",
     width: "100%",
-    height: Math.min(height * 0.065, 54),
-    borderRadius: 12,
+    height: 54,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 25,
     shadowColor: "#5A31F4",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
   buttonText: {
     color: "#fff",
-    fontWeight: "700",
-    fontSize: Math.min(width * 0.043, 17),
+    fontSize: 16,
     fontFamily: "Poppins_600SemiBold",
   },
   resendContainer: {
@@ -419,16 +510,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     flexWrap: "wrap",
+    marginTop: 18,
   },
   resendText: {
-    fontSize: Math.min(width * 0.04, 15),
-    color: "#777",
+    fontSize: 14,
+    color: "#999",
     fontFamily: "Poppins_400Regular",
   },
   resendLink: {
-    color: "red",
-    fontWeight: "600",
-    fontSize: Math.min(width * 0.04, 15),
+    color: "#5A31F4",
+    fontSize: 14,
     fontFamily: "Poppins_600SemiBold",
+  },
+  resendLinkDisabled: {
+    color: "#999",
   },
 });

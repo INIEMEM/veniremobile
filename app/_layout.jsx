@@ -8,7 +8,11 @@ import { ClerkProvider, ClerkLoaded } from '@clerk/clerk-expo';
 import { Text } from "react-native";
 import { useEffect } from "react";
 import { ToastProvider } from "../context/ToastContext";
+import { toastConfig } from "../components/CustomToast";
+import * as WebBrowser from "expo-web-browser";
 // import * as SplashScreen from "expo-splash-screen";
+WebBrowser.maybeCompleteAuthSession();
+
 const publishableKey = 'pk_test_Z2VuZXJvdXMtbXVsbGV0LTQyLmNsZXJrLmFjY291bnRzLmRldiQ'
 
 if (!publishableKey) {
@@ -46,7 +50,7 @@ export default function RootLayout() {
 
           <Stack screenOptions={{ headerShown: false }} />
           </ToastProvider>
-          <Toast />
+          <Toast config={toastConfig} topOffset={90} />
         </AuthProvider>
       </ClerkLoaded>
     </ClerkProvider>

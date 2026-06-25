@@ -22,7 +22,7 @@ export default function Index() {
       if (!onboarded) router.replace("/onboarding/step1");
       else if (!token) router.replace("/auth/login");
       else router.replace("/(tabs)/Home");
-
+      
       // Give a small buffer before removing splashxc
       setTimeout(() => setShowSplash(false), 500);
     };

@@ -28,8 +28,8 @@ import {
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
 import * as Linking from 'expo-linking';
-// Required for OAuth flow
-WebBrowser.maybeCompleteAuthSession();
+import { Ionicons } from "@expo/vector-icons";
+import VenireLogo from "../../components/VenireLogo";
 
 const { width, height } = Dimensions.get("window");
 
@@ -38,11 +38,14 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [focusedField, setFocusedField] = useState("");
   const { login, logout } = useAuth();
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
   const { user: clerkUser, isLoaded } = useUser();
   const { isSignedIn, signOut } = useClerkAuth();
   const { session } = useSession();
+  const clerk = useClerk();
 
   // Animations
   const logoScale = useRef(new Animated.Value(0.5)).current;
@@ -53,6 +56,8 @@ export default function LoginScreen() {
   const formOpacity = useRef(new Animated.Value(0)).current;
   const buttonY = useRef(new Animated.Value(30)).current;
   const buttonOpacity = useRef(new Animated.Value(0)).current;
+  const emailInputRef = useRef(null);
+  const passwordInputRef = useRef(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -167,7 +172,7 @@ export default function LoginScreen() {
       setIsSubmitting(true);
       const redirectUrl = AuthSession.makeRedirectUri({
         scheme: "veniremobile",
-        path: "/oauth-native-callback",
+        path: "oauth-native-callback",
         preferLocalhost: true,
       });
      console.log("Redirect URL for OAuth:", redirectUrl);
@@ -177,68 +182,45 @@ export default function LoginScreen() {
       
       if (createdSessionId) {
         await setActive({ session: createdSessionId });
-        
-        // Give Clerk a moment to set up the session
-        await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Get user data from the session or the OAuth result
-        // The user data is in either signUp or signIn depending on whether it's a new user
-        let userEmail, userFirstName, userLastName, userId, userImage;
+        let activeUser = clerk.user;
+        if (!activeUser) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          activeUser = clerk.user;
+        }
 
-        // Try to get from session first (most reliable)
-        if (session?.user) {
-          userEmail = session.user.emailAddresses?.[0]?.emailAddress;
-          userFirstName = session.user.firstName;
-          userLastName = session.user.lastName;
-          userId = session.user.id;
-          userImage = session.user.imageUrl;
-          console.log("Got user from session:", session.user);
-        } 
-        // Fallback to signUp/signIn result
-        else if (signUp?.createdUserId) {
-          userEmail = signUp.emailAddress;
-          userFirstName = signUp.firstName;
-          userLastName = signUp.lastName;
-          userId = signUp.createdUserId;
-          userImage = signUp.imageUrl;
-          console.log("Got user from signUp:", signUp);
-        } 
-        else if (signIn?.createdSessionId) {
-          userEmail = signIn.identifier;
-          userFirstName = signIn.firstName;
-          userLastName = signIn.lastName;
-          userId = signIn.userId;
-          userImage = signIn.imageUrl;
-          console.log("Got user from signIn:", signIn);
-        }
-        // Last resort: try clerkUser hook
-        else if (clerkUser) {
-          userEmail = clerkUser.emailAddresses?.[0]?.emailAddress;
-          userFirstName = clerkUser.firstName;
-          userLastName = clerkUser.lastName;
-          userId = clerkUser.id;
-          userImage = clerkUser.imageUrl;
-          console.log("Got user from clerkUser hook:", clerkUser);
-        }
+        const userEmail =
+          activeUser?.primaryEmailAddress?.emailAddress ||
+          signIn?.identifier ||
+          signUp?.emailAddress ||
+          "";
+        const userFirstName = activeUser?.firstName || signUp?.firstName || "";
+        const userLastName = activeUser?.lastName || signUp?.lastName || "";
+        const clerkUserId =
+          activeUser?.id ||
+          clerkUser?.id ||
+          signIn?.userId ||
+          signUp?.createdUserId ||
+          "";
 
         console.log("User data extracted:", { 
           userEmail, 
           userFirstName, 
           userLastName, 
-          userId 
+          clerkUserId 
         });
 
         if (!userEmail) {
-          throw new Error("Could not retrieve user email from Google");
+          console.warn("Could not retrieve user email from Google. Continuing with available Clerk data.");
         }
 
         // Send user data to your backend
-        const response = await api.post("/auth/clerk/google/login", {
-          userEmail: userEmail,
-          userFirstName: userFirstName,
-          userLastName: userLastName,
-          // clerkId: userId,
-          userProfileImage: userImage,
+        const response = await api.post("/auth/google/login", {
+          email: userEmail || "",
+          firstName: userFirstName || "",
+          lastName: userLastName || "",
+          clerkId: clerkUserId || "",
+          sessionId: createdSessionId,
         });
 
         const token = response.data?.token;
@@ -316,115 +298,138 @@ export default function LoginScreen() {
     >
       {/* Show loader when submitting */}
       {isSubmitting && <CustomLoader />}
+      <View style={styles.topHeader} pointerEvents="none">
+        <VenireLogo
+          size={60}
+          showText={true}
+          animate={false}
+        />
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
-        {/* Logo Section */}
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              transform: [{ scale: logoScale }],
-              opacity: logoOpacity,
-            },
-          ]}
-        >
-          <Image
-            source={require("../../assets/splash.png")}
-            style={styles.logo}
-          />
-        </Animated.View>
+        <View style={styles.authCard}>
+          <Text style={styles.cardTitle}>Welcome Back</Text>
+          <Text style={styles.cardSubtitle}>Sign in to continue</Text>
 
-        {/* Header Section */}
-        <Animated.View
-          style={[
-            styles.headerSection,
-            {
-              transform: [{ translateY: headerY }],
-              opacity: headerOpacity,
-            },
-          ]}
-        >
-          <Text style={styles.appName}>Venire</Text>
-          <Text style={styles.welcomeText}>Welcome back, log in to discover</Text>
-          <Text style={styles.welcomeText}>new events!</Text>
-        </Animated.View>
-
-        {/* Login Form */}
-        <Animated.View
-          style={[
-            styles.form,
-            {
-              transform: [{ translateY: formY }],
-              opacity: formOpacity,
-            },
-          ]}
-        >
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholderTextColor="#999"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            placeholderTextColor="#999"
-            secureTextEntry
-            autoCapitalize="none"
-          />
-          <TouchableOpacity
-            style={styles.fgPwd}
-            onPress={() => router.replace("/auth/forgot")}
-            activeOpacity={0.7}
+          {/* Login Form */}
+          <Animated.View
+            style={[
+              styles.form,
+              {
+                transform: [{ translateY: formY }],
+                opacity: formOpacity,
+              },
+            ]}
           >
-            <Text style={styles.fgPwdText}>Forgot Password?</Text>
-          </TouchableOpacity>
-        </Animated.View>
+            <Text style={styles.label}>Email Address</Text>
+            <View
+              style={[
+                styles.inputWrapper,
+                focusedField === "email" && styles.inputWrapperFocused,
+              ]}
+              onTouchEnd={() => emailInputRef.current?.focus()}
+            >
+              <Ionicons
+                name="mail-outline"
+                size={20}
+                color="#999"
+                style={styles.leftInputIcon}
+                pointerEvents="none"
+              />
+              <TextInput
+                ref={emailInputRef}
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholderTextColor="#999"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                onFocus={() => setFocusedField("email")}
+                onBlur={() => setFocusedField("")}
+              />
+            </View>
 
-        {/* Buttons Section */}
-        <Animated.View
-          style={[
-            styles.buttonsContainer,
-            {
-              transform: [{ translateY: buttonY }],
-              opacity: buttonOpacity,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={[styles.button, styles.loginButton]}
-            onPress={handleLogin}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.loginText}>
-              {isSubmitting ? "Logging in..." : "Login"}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Google Sign-In/Out Buttons */}
-          {/* {isSignedIn && isLoaded ? (
+            <Text style={styles.label}>Password</Text>
+            <View
+              style={[
+                styles.passwordFieldContainer,
+                styles.inputWrapper,
+                focusedField === "password" && styles.inputWrapperFocused,
+              ]}
+              onTouchEnd={() => passwordInputRef.current?.focus()}
+            >
+              <Ionicons
+                name="lock-closed-outline"
+                size={20}
+                color="#999"
+                style={styles.leftInputIcon}
+                pointerEvents="none"
+              />
+              <TextInput
+                ref={passwordInputRef}
+                style={[styles.input, styles.passwordInput]}
+                value={password}
+                onChangeText={setPassword}
+                placeholderTextColor="#999"
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                onFocus={() => setFocusedField("password")}
+                onBlur={() => setFocusedField("")}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                onPress={() => setShowPassword((current) => !current)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off-outline" : "eye-outline"}
+                  size={20}
+                  color="#999"
+                />
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity
-              style={[styles.button, styles.googleSignOutButton]}
-              onPress={handleGoogleSignOut}
+              style={styles.fgPwd}
+              onPress={() => router.replace("/auth/forgot")}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.fgPwdText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </Animated.View>
+
+          {/* Buttons Section */}
+          <Animated.View
+            style={[
+              styles.buttonsContainer,
+              {
+                transform: [{ translateY: buttonY }],
+                opacity: buttonOpacity,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={[styles.button, styles.loginButton]}
+              onPress={handleLogin}
               disabled={isSubmitting}
               activeOpacity={0.8}
             >
-              <View style={styles.googleButtonContent}>
-                <Text style={styles.googleSignOutText}>Sign Out from Google</Text>
-              </View>
+              <Text style={styles.loginText}>
+                {isSubmitting ? "Logging in..." : "Sign In"}
+              </Text>
             </TouchableOpacity>
-          ) : (
+
+            {/* OR Divider */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.divider} />
+            </View>
+
+            {/* Google Sign-In Button */}
             <TouchableOpacity
               style={[styles.button, styles.googleButton]}
               onPress={handleGoogleSignIn}
@@ -432,36 +437,36 @@ export default function LoginScreen() {
               activeOpacity={0.8}
             >
               <View style={styles.googleButtonContent}>
-               
-               
+                <Ionicons
+                  name="logo-google"
+                  size={20}
+                  color="#DB4437"
+                  style={styles.googleIcon}
+                />
                 <Text style={styles.googleText}>Continue with Google</Text>
               </View>
             </TouchableOpacity>
-          )} */}
 
-          {/* OR Divider */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.divider} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.divider} />
-          </View>
+            <TouchableOpacity
+              onPress={() => router.push("/auth/signup")}
+              activeOpacity={0.8}
+              style={styles.authRedirectContainer}
+            >
+              <Text style={styles.authRedirectText}>
+                Don't have an account?{" "}
+                <Text style={styles.authRedirectLink}>Sign Up</Text>
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.button, styles.signupButton]}
-            onPress={() => router.push("/auth/signup")}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.signupText}>Sign Up</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.exploreButton]}
-            onPress={handleExplore}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.exploreText}>Explore</Text>
-          </TouchableOpacity>
-        </Animated.View>
+            <TouchableOpacity
+              style={[styles.button, styles.exploreButton]}
+              onPress={handleExplore}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.exploreText}>Explore</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -470,14 +475,48 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#F8F4FF",
+  },
+  topHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 260,
+    backgroundColor: "#5A31F4",
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: width * 0.06,
-    paddingTop: Platform.OS === "ios" ? 60 : 40,
+    paddingTop: 0,
     paddingBottom: 30,
-    justifyContent: "center",
+  },
+  authCard: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 28,
+    marginHorizontal: 20,
+    marginTop: 200,
+    shadowColor: "#5A31F4",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  cardTitle: {
+    color: "#333",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 22,
+    marginBottom: 4,
+  },
+  cardSubtitle: {
+    color: "#666",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 14,
+    marginBottom: 24,
   },
   logoContainer: {
     alignItems: "center",
@@ -509,31 +548,66 @@ const styles = StyleSheet.create({
   },
   form: {
     width: "100%",
-    marginTop: height * 0.03,
-    marginBottom: height * 0.03,
+    marginBottom: 8,
   },
   label: {
-    fontSize: Math.min(width * 0.037, 14),
-    color: "#444",
+    fontSize: 12,
+    color: "#555",
     marginBottom: 6,
-    fontFamily: "Poppins_400Regular",
-    fontWeight: "500",
+    fontFamily: "Poppins_500Medium",
+  },
+  inputWrapper: {
+    position: "relative",
+    width: "100%",
+    height: 52,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#E8DBFF",
+    borderRadius: 12,
+    marginBottom: 16,
+    justifyContent: "center",
+  },
+  inputWrapperFocused: {
+    borderColor: "#5A31F4",
+    shadowColor: "#5A31F4",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  leftInputIcon: {
+    position: "absolute",
+    left: 14,
+    zIndex: 1,
   },
   input: {
-    borderBottomWidth: 1.5,
-    borderBottomColor: "#ccc",
-    paddingVertical: Platform.OS === "ios" ? 12 : 10,
-    paddingHorizontal: 4,
-    marginBottom: 20,
-    fontSize: Math.min(width * 0.04, 15),
+    flex: 1,
+    width: "100%",
+    height: 52,
+    paddingLeft: 44,
+    paddingRight: 14,
+    fontSize: 14,
     color: "#333",
     fontFamily: "Poppins_400Regular",
-    minHeight: 40,
+    zIndex: 2,
+  },
+  passwordFieldContainer: {
+    position: "relative",
+    width: "100%",
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  passwordToggle: {
+    position: "absolute",
+    right: 14,
+    top: 16,
+    zIndex: 4,
   },
   fgPwd: {
     alignItems: "flex-end",
-    marginTop: -10,
-    marginBottom: 10,
+    marginTop: -6,
+    marginBottom: 14,
   },
   fgPwdText: {
     color: "#5A31F4",
@@ -547,8 +621,8 @@ const styles = StyleSheet.create({
   },
   button: {
     width: "100%",
-    height: Math.min(height * 0.065, 54),
-    borderRadius: 12,
+    height: 54,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 12,
@@ -556,19 +630,24 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     backgroundColor: "#5A31F4",
-    elevation: 8,
+    shadowColor: "#5A31F4",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
+    marginTop: 8,
   },
   loginText: {
     color: "#fff",
-    fontWeight: "700",
-    fontSize: Math.min(width * 0.043, 17),
+    fontSize: 16,
     fontFamily: "Poppins_600SemiBold",
   },
   googleButton: {
     backgroundColor: "#fff",
-    borderWidth: 1.5,
-    borderColor: "#ddd",
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#E8DBFF",
+    elevation: 1,
+    height: 52,
   },
   googleSignOutButton: {
     backgroundColor: "#fff",
@@ -582,16 +661,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   googleIcon: {
-    width: 20,
-    height: 20,
     marginRight: 10,
-    resizeMode: "contain",
   },
   googleText: {
-    color: "#444",
-    fontWeight: "600",
-    fontSize: Math.min(width * 0.04, 16),
-    fontFamily: "Poppins_600SemiBold",
+    color: "#333",
+    fontWeight: "500",
+    fontSize: 15,
+    fontFamily: "Poppins_500Medium",
   },
   googleSignOutText: {
     color: "#EA4335",
@@ -608,7 +684,7 @@ const styles = StyleSheet.create({
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: "#ddd",
+    backgroundColor: "#E8DBFF",
   },
   dividerText: {
     marginHorizontal: 12,
@@ -628,11 +704,26 @@ const styles = StyleSheet.create({
   exploreButton: {
     backgroundColor: "#eee",
     elevation: 2,
+    marginTop: 8,
   },
   exploreText: {
     color: "#555",
     fontWeight: "600",
     fontSize: Math.min(width * 0.043, 17),
+    fontFamily: "Poppins_600SemiBold",
+  },
+  authRedirectContainer: {
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  authRedirectText: {
+    color: "#666",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  authRedirectLink: {
+    color: "#5A31F4",
     fontFamily: "Poppins_600SemiBold",
   },
 });

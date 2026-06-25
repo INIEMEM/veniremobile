@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Image,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +15,8 @@ import { useRouter } from "expo-router";
 import api from "../../utils/axiosInstance";
 import Toast from "react-native-toast-message";
 import CustomLoader from "../../components/CustomFormLoader";
+import { Ionicons } from "@expo/vector-icons";
+import VenireLogo from "../../components/VenireLogo";
 
 const { width, height } = Dimensions.get("window");
 
@@ -23,6 +24,7 @@ export default function ForgotPasswordScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [focusedField, setFocusedField] = useState("");
 
   // Animations
   const logoScale = useRef(new Animated.Value(0.5)).current;
@@ -33,6 +35,7 @@ export default function ForgotPasswordScreen() {
   const formOpacity = useRef(new Animated.Value(0)).current;
   const buttonY = useRef(new Animated.Value(30)).current;
   const buttonOpacity = useRef(new Animated.Value(0)).current;
+  const emailInputRef = useRef(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -140,100 +143,97 @@ export default function ForgotPasswordScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.container}
     >
-       {isSubmitting && <CustomLoader />}
+      {isSubmitting && <CustomLoader />}
+      <View style={styles.topHeader} pointerEvents="none">
+        <VenireLogo
+          size={60}
+          showText={true}
+          animate={false}
+        />
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
-       
-
-        {/* Logo Section */}
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              transform: [{ scale: logoScale }],
-              opacity: logoOpacity,
-            },
-          ]}
-        >
-          <Image
-            source={require("../../assets/splash.png")}
-            style={styles.logo}
-          />
-        </Animated.View>
-
-        {/* Header Section */}
-        <Animated.View
-          style={[
-            styles.headerSection,
-            {
-              transform: [{ translateY: headerY }],
-              opacity: headerOpacity,
-            },
-          ]}
-        >
-          <Text style={styles.appName}>Venire</Text>
-          <Text style={styles.welcomeText}>
-            A new password will be sent to this
+        <View style={styles.authCard}>
+          <Text style={styles.cardTitle}>Forgot Password?</Text>
+          <Text style={styles.cardSubtitle}>
+            Enter your email address and we'll send reset instructions.
           </Text>
-          <Text style={styles.welcomeText}>email address.</Text>
-        </Animated.View>
 
-        {/* Email Form */}
-        <Animated.View
-          style={[
-            styles.form,
-            {
-              transform: [{ translateY: formY }],
-              opacity: formOpacity,
-            },
-          ]}
-        >
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholderTextColor="#999"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </Animated.View>
-
-        {/* Buttons Section */}
-        <Animated.View
-          style={[
-            styles.buttonsContainer,
-            {
-              transform: [{ translateY: buttonY }],
-              opacity: buttonOpacity,
-            },
-          ]}
-        >
-          {/* Send Button */}
-          <TouchableOpacity
-            style={[styles.button, styles.sendButton]}
-            onPress={handleSend}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
+          {/* Email Form */}
+          <Animated.View
+            style={[
+              styles.form,
+              {
+                transform: [{ translateY: formY }],
+                opacity: formOpacity,
+              },
+            ]}
           >
-            <Text style={styles.sendText}>
-              {isSubmitting ? "Sending..." : "Send"}
-            </Text>
-          </TouchableOpacity>
+            <Text style={styles.label}>Email Address</Text>
+            <View
+              style={[
+                styles.inputWrapper,
+                focusedField === "email" && styles.inputWrapperFocused,
+              ]}
+              onTouchEnd={() => emailInputRef.current?.focus()}
+            >
+              <Ionicons
+                name="mail-outline"
+                size={20}
+                color="#999"
+                style={styles.leftInputIcon}
+                pointerEvents="none"
+              />
+              <TextInput
+                ref={emailInputRef}
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholderTextColor="#999"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                onFocus={() => setFocusedField("email")}
+                onBlur={() => setFocusedField("")}
+              />
+            </View>
+          </Animated.View>
 
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.button, styles.backButton]}
-            onPress={() => router.push("/auth/login")}
-            activeOpacity={0.8}
+          {/* Buttons Section */}
+          <Animated.View
+            style={[
+              styles.buttonsContainer,
+              {
+                transform: [{ translateY: buttonY }],
+                opacity: buttonOpacity,
+              },
+            ]}
           >
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
-        </Animated.View>
+            {/* Send Button */}
+            <TouchableOpacity
+              style={[styles.button, styles.sendButton]}
+              onPress={handleSend}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.sendText}>
+                {isSubmitting ? "Sending..." : "Send Reset Link"}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Back Button */}
+            <TouchableOpacity
+              style={[styles.button, styles.backButton]}
+              onPress={() => router.push("/auth/login")}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.backText}>Back to Login</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -242,65 +242,94 @@ export default function ForgotPasswordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#F8F4FF",
+  },
+  topHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 260,
+    backgroundColor: "#5A31F4",
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: width * 0.06,
-    paddingTop: Platform.OS === "ios" ? 60 : 40,
+    paddingTop: 0,
     paddingBottom: 30,
-    justifyContent: "center",
   },
-  logoContainer: {
-    alignItems: "center",
-    marginBottom: 12,
+  authCard: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 28,
+    marginHorizontal: 20,
+    marginTop: 200,
+    shadowColor: "#5A31F4",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 8,
   },
-  logo: {
-    width: Math.min(width * 0.15, 70),
-    height: Math.min(width * 0.15, 70),
-    resizeMode: "contain",
-  },
-  headerSection: {
-    alignItems: "center",
-    marginBottom: height * 0.04,
-  },
-  appName: {
-    fontSize: Math.min(width * 0.065, 28),
-    fontWeight: "700",
-    color: "#5A31F4",
-    textAlign: "center",
+  cardTitle: {
+    color: "#333",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 22,
     marginBottom: 4,
-    fontFamily: "Poppins_600SemiBold",
   },
-  welcomeText: {
-    fontSize: Math.min(width * 0.04, 16),
-    color: "#555",
-    textAlign: "center",
-    lineHeight: 22,
+  cardSubtitle: {
+    color: "#666",
     fontFamily: "Poppins_400Regular",
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 24,
   },
   form: {
     width: "100%",
-    marginTop: height * 0.03,
-    marginBottom: height * 0.03,
+    marginBottom: 8,
   },
   label: {
-    fontSize: Math.min(width * 0.037, 14),
-    color: "#444",
+    fontSize: 12,
+    color: "#555",
     marginBottom: 6,
-    fontFamily: "Poppins_400Regular",
-    fontWeight: "500",
+    fontFamily: "Poppins_500Medium",
+  },
+  inputWrapper: {
+    position: "relative",
+    width: "100%",
+    height: 52,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#E8DBFF",
+    borderRadius: 12,
+    marginBottom: 16,
+    justifyContent: "center",
+  },
+  inputWrapperFocused: {
+    borderColor: "#5A31F4",
+    shadowColor: "#5A31F4",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  leftInputIcon: {
+    position: "absolute",
+    left: 14,
+    zIndex: 1,
   },
   input: {
-    borderBottomWidth: 1.5,
-    borderBottomColor: "#555",
-    paddingVertical: Platform.OS === "ios" ? 12 : 10,
-    paddingHorizontal: 4,
-    marginBottom: 20,
-    fontSize: Math.min(width * 0.04, 15),
+    flex: 1,
+    width: "100%",
+    height: 52,
+    paddingLeft: 44,
+    paddingRight: 14,
+    fontSize: 14,
     color: "#333",
     fontFamily: "Poppins_400Regular",
-    minHeight: 40,
+    zIndex: 2,
   },
   buttonsContainer: {
     width: "100%",
@@ -308,44 +337,33 @@ const styles = StyleSheet.create({
   },
   button: {
     width: "100%",
-    height: Math.min(height * 0.065, 54),
-    borderRadius: 12,
+    height: 54,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 12,
   },
   sendButton: {
     backgroundColor: "#5A31F4",
-    // shadowColor: "#5A31F4",
-    // shadowOffset: {
-    //   width: 0,
-    //   height: 4,
-    // },
-    // shadowOpacity: 0.3,
-    // shadowRadius: 4.65,
-    elevation: 8,
+    shadowColor: "#5A31F4",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
+    marginTop: 8,
   },
   sendText: {
     color: "#fff",
-    fontWeight: "700",
-    fontSize: Math.min(width * 0.043, 17),
+    fontSize: 16,
     fontFamily: "Poppins_600SemiBold",
   },
   backButton: {
     backgroundColor: "#F3EDFF",
-    // shadowColor: "#5A31F4",
-    // shadowOffset: {
-    //   width: 0,
-    //   height: 2,
-    // },
-    // shadowOpacity: 0.1,
-    // shadowRadius: 3,
     elevation: 3,
   },
   backText: {
     color: "#5A31F4",
-    fontWeight: "700",
-    fontSize: Math.min(width * 0.043, 17),
+    fontSize: 16,
     fontFamily: "Poppins_600SemiBold",
   },
 });
