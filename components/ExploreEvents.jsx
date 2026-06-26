@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   RefreshControl,
   FlatList,
   ScrollView,
+  AppState,
 } from "react-native";
 import { Dimensions, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -57,10 +58,50 @@ export default function ExploreEvents({
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
   const animations = useRef({}).current;
-  const activeIndexes = useRef({}).current
+  const activeIndexes = useRef({}).current;
   const toast = useToast();
   const [fullScreenMedia, setFullScreenMedia] = useState(null); // { media: array, initialIndex: number }
   const [loadingInterest, setLoadingInterest] = useState({});
+
+  // Video playback management
+  // Key format: `${eventId}-${mediaIndex}`
+  const videoRefs = useRef({});
+  const fullScreenVideoRef = useRef(null);
+  const [playingVideoKey, setPlayingVideoKey] = useState(null); // which feed video is currently playing
+
+  // Pause all feed card videos (called on app background / fullscreen open)
+  const pauseAllFeedVideos = useCallback(async () => {
+    const refs = Object.values(videoRefs.current);
+    await Promise.all(
+      refs.map(async (ref) => {
+        try { if (ref) await ref.pauseAsync(); } catch (_) {}
+      })
+    );
+    setPlayingVideoKey(null);
+  }, []);
+
+  // Pause the fullscreen video and clear state
+  const closeFullScreen = useCallback(async () => {
+    try {
+      if (fullScreenVideoRef.current) {
+        await fullScreenVideoRef.current.pauseAsync();
+      }
+    } catch (_) {}
+    setFullScreenMedia(null);
+  }, []);
+
+  // Handle app going to background — stop everything
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        pauseAllFeedVideos();
+        try {
+          if (fullScreenVideoRef.current) fullScreenVideoRef.current.pauseAsync();
+        } catch (_) {}
+      }
+    });
+    return () => subscription.remove();
+  }, [pauseAllFeedVideos]);
 
   // Ticket modal state (for buying tickets directly from the feed)
   const [ticketModalEvent, setTicketModalEvent] = useState(null);
@@ -576,35 +617,38 @@ export default function ExploreEvents({
 
     return (
       <View style={styles.eventCard}>
-        {/* Draft Badge */}
-        {isDraftMode && (
-          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-            <View style={styles.draftBadge}>
-              <Ionicons name="document-text-outline" size={14} color="#FAB843" />
-              <Text style={styles.draftBadgeText}>DRAFT</Text>
-            </View>
-          </View>
-        )}
 
+        {/* ── Header: Avatar + Name + Location + Price badge ── */}
         <TouchableOpacity 
           style={styles.cardHeader}
-          activeOpacity={0.7}
+          activeOpacity={0.85}
           onPress={() => handleEventPress(event._id)}
         >
           <View style={styles.hostLeft}>
-            <Image
-              source={{ uri: event.userId?.profile_picture || 
-                event.user?.profile_picture ||
-                "https://cdn-icons-png.flaticon.com/512/149/149071.png" }}
-              style={styles.hostAvatar}
-            />
+            {/* Avatar with story-ring border */}
+            <View style={styles.avatarRing}>
+              <Image
+                source={{ uri: event.userId?.profile_picture || 
+                  event.user?.profile_picture ||
+                  "https://cdn-icons-png.flaticon.com/512/149/149071.png" }}
+                style={styles.hostAvatar}
+              />
+            </View>
             <View style={styles.hostInfo}>
-              <Text style={styles.hostName}>
-                {event.userId?.firstname || event.user?.firstname || "Unknown"}{" "}
-                {event.userId?.lastname || event.user?.lastname || ""}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Text style={styles.hostName}>
+                  {event.userId?.firstname || event.user?.firstname || "Unknown"}{" "}
+                  {event.userId?.lastname || event.user?.lastname || ""}
+                </Text>
+                {/* Draft badge inline */}
+                {isDraftMode && (
+                  <View style={styles.draftBadge}>
+                    <Text style={styles.draftBadgeText}>DRAFT</Text>
+                  </View>
+                )}
+              </View>
               <View style={styles.hostMeta}>
-                <Ionicons name="location-outline" size={11} color="#999" />
+                <Ionicons name="location-outline" size={10} color="#999" />
                 <Text style={styles.hostLocation} numberOfLines={1}>
                   {safeText(event.address, "Location TBA")}
                 </Text>
@@ -612,6 +656,7 @@ export default function ExploreEvents({
             </View>
           </View>
 
+          {/* Right side badges */}
           <View style={styles.headerRight}>
             {event.userStatus === "ongoing" && (
               <View style={styles.liveBadge}>
@@ -619,14 +664,13 @@ export default function ExploreEvents({
                 <Text style={styles.liveText}>LIVE</Text>
               </View>
             )}
-            {event.isTicket && (
+            {event.isTicket ? (
               <View style={styles.priceBadge}>
                 <Text style={styles.priceBadgeText}>
                   ₦{event.ticketAmount?.toLocaleString()}
                 </Text>
               </View>
-            )}
-            {!event.isTicket && (
+            ) : (
               <View style={[styles.priceBadge, styles.freeBadge]}>
                 <Text style={[styles.priceBadgeText, styles.freeText]}>FREE</Text>
               </View>
@@ -634,19 +678,7 @@ export default function ExploreEvents({
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => handleEventPress(event._id)}
-          style={styles.descriptionContainer}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.eventNameInline}>
-            {safeText(event.name, "Untitled event")}
-          </Text>
-          <Text style={styles.description}>
-            {truncateText(safeText(event.description), 120, "long")}
-          </Text>
-        </TouchableOpacity>
-
+        {/* ── MEDIA (tall, full-width, Instagram-style) ── */}
         <View style={styles.carouselContainer}>
           <ScrollView
             horizontal
@@ -662,48 +694,98 @@ export default function ExploreEvents({
             }}
             style={styles.carouselScroll}
           >
-            {allMedia.map((item, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={styles.carouselSlide}
-                onPress={() => setFullScreenMedia({ media: allMedia, initialIndex: idx })}
-                activeOpacity={0.9}
-              >
-                {item.type === "video" ? (
-                  <Video
-                    source={{ uri: item.uri }}
-                    style={styles.carouselMedia}
-                    useNativeControls
-                    resizeMode="cover"
-                    isLooping
-                    shouldPlay={false}
-                  />
-                ) : (
-                  <Image
-                    source={{ uri: item.uri }}
-                    style={styles.carouselMedia}
-                    resizeMode="cover"
-                  />
-                )}
+            {allMedia.map((item, idx) => {
+              const videoKey = `${event._id}-${idx}`;
+              const isPlaying = playingVideoKey === videoKey;
 
-                {/* Media index counter — top right */}
-                {mediaCount > 1 && (
-                  <View style={styles.mediaCounter}>
-                    <Ionicons 
-                      name="images-outline" 
-                      size={11} 
-                      color="#FFFFFF" 
-                    />
-                    <Text style={styles.mediaCounterText}>
-                      {idx + 1}/{mediaCount}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+              return (
+                <View key={idx} style={styles.carouselSlide}>
+                  {item.type === "video" ? (
+                    <>
+                      <Video
+                        ref={(r) => { videoRefs.current[videoKey] = r; }}
+                        source={{ uri: item.uri }}
+                        style={styles.carouselMedia}
+                        resizeMode="cover"
+                        shouldPlay={false}
+                        isLooping={false}
+                        isMuted={false}
+                        onPlaybackStatusUpdate={(status) => {
+                          // Auto-clear playing state when video finishes
+                          if (status.didJustFinish) setPlayingVideoKey(null);
+                        }}
+                      />
+                      {/* Tap-to-play overlay — shows play button when not playing */}
+                      <TouchableOpacity
+                        style={styles.videoOverlay}
+                        activeOpacity={0.85}
+                        onPress={async () => {
+                          const ref = videoRefs.current[videoKey];
+                          if (!ref) return;
+                          if (isPlaying) {
+                            // Pause this video
+                            await ref.pauseAsync();
+                            setPlayingVideoKey(null);
+                          } else {
+                            // Pause any other playing video first
+                            await pauseAllFeedVideos();
+                            await ref.playAsync();
+                            setPlayingVideoKey(videoKey);
+                          }
+                        }}
+                        onLongPress={async () => {
+                          // Long press opens fullscreen — pause feed video first
+                          await pauseAllFeedVideos();
+                          setFullScreenMedia({ media: allMedia, initialIndex: idx });
+                        }}
+                      >
+                        {!isPlaying && (
+                          <View style={styles.playIconWrap}>
+                            <Ionicons name="play" size={36} color="#FFFFFF" />
+                          </View>
+                        )}
+                        {/* Fullscreen expand icon — top right corner */}
+                        <TouchableOpacity
+                          style={styles.expandBtn}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          onPress={async () => {
+                            await pauseAllFeedVideos();
+                            setFullScreenMedia({ media: allMedia, initialIndex: idx });
+                          }}
+                        >
+                          <Ionicons name="expand-outline" size={18} color="#FFF" />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity
+                      style={{ flex: 1 }}
+                      activeOpacity={0.95}
+                      onPress={() => setFullScreenMedia({ media: allMedia, initialIndex: idx })}
+                    >
+                      <Image
+                        source={{ uri: item.uri }}
+                        style={styles.carouselMedia}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Media count — top left */}
+                  {mediaCount > 1 && (
+                    <View style={styles.mediaCounter}>
+                      <Ionicons name="images-outline" size={11} color="#FFFFFF" />
+                      <Text style={styles.mediaCounterText}>
+                        {idx + 1}/{mediaCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </ScrollView>
 
-          {/* Dot indicators — only shown if more than 1 */}
+          {/* Dot indicators */}
           {mediaCount > 1 && (
             <View style={styles.dotsContainer}>
               {allMedia.map((_, idx) => (
@@ -711,148 +793,176 @@ export default function ExploreEvents({
                   key={idx}
                   style={[
                     styles.dot,
-                    activeIndexes[event._id] === idx 
-                      && styles.dotActive
+                    activeIndexes[event._id] === idx && styles.dotActive
                   ]}
                 />
               ))}
             </View>
           )}
+        </View>
 
-          {/* Left/Right swipe hint — only on first render
-              for events with multiple media */}
-          {mediaCount > 1 && (
-            <View style={styles.swipeHint} pointerEvents="none">
-              <View style={styles.swipeHintLeft}>
-                <Ionicons 
-                  name="chevron-back" 
-                  size={20} 
-                  color="rgba(255,255,255,0.6)" 
-                />
-              </View>
-              <View style={styles.swipeHintRight}>
-                <Ionicons 
-                  name="chevron-forward" 
-                  size={20} 
-                  color="rgba(255,255,255,0.6)" 
-                />
-              </View>
-            </View>
+        {/* ── Action Bar: all on one line — like | comment | share | bookmark | interested ── */}
+        <View style={styles.actionBar}>
+          {/* Like */}
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => handleLike(event._id, event.hasLiked)}
+          >
+            <Animated.View style={{ transform: [{ scale: animations[event._id] }] }}>
+              <Ionicons
+                name={event.hasLiked ? "heart" : "heart-outline"}
+                size={22}
+                color={event.hasLiked ? "#FF3B30" : "#1A1A1A"}
+              />
+            </Animated.View>
+            <Text style={[styles.actionCount, event.hasLiked && { color: "#FF3B30" }]}>
+              {event.totalLikes || 0}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Comment */}
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => router.push(`/(tabs)/Events/${event._id}?tab=comments`)}
+          >
+            <Ionicons name="chatbubble-outline" size={22} color="#1A1A1A" />
+            <Text style={styles.actionCount}>{event.totalComments || 0}</Text>
+          </TouchableOpacity>
+
+          {/* Share */}
+          <TouchableOpacity style={styles.actionBtn}>
+            <Ionicons name="share-social-outline" size={22} color="#1A1A1A" />
+          </TouchableOpacity>
+
+          {/* Spacer */}
+          <View style={{ flex: 1 }} />
+
+          {/* Bookmark */}
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => handleBookmark(event._id, event.hasBookmarked)}
+          >
+            <Ionicons
+              name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+              size={22}
+              color={event.hasBookmarked ? "#5A31F4" : "#1A1A1A"}
+            />
+          </TouchableOpacity>
+
+          {/* Interested */}
+          {!isDraftMode && !isOwnEvent && (
+            <TouchableOpacity
+              style={[styles.interestedBtn, event.hasInterested && styles.interestedBtnActive]}
+              onPress={() => handleInterested(event._id, event.hasInterested)}
+            >
+              <Ionicons
+                name={event.hasInterested ? "star" : "star-outline"}
+                size={13}
+                color={event.hasInterested ? "#FAB843" : "#5A31F4"}
+              />
+              <Text style={[styles.interestedText, event.hasInterested && styles.interestedTextActive]}>
+                {event.hasInterested ? "Going" : "Interested"}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {isDraftMode && (
+            <TouchableOpacity
+              style={styles.draftBtn}
+              onPress={() => router.replace(`/(tabs)/Events/${event._id}?isDraft=true`)}
+            >
+              <Text style={styles.draftBtnText}>View Draft</Text>
+            </TouchableOpacity>
           )}
         </View>
 
-        <View style={styles.metaStrip}>
-          <View style={styles.metaItem}>
-            <Ionicons name="calendar-outline" size={13} color="#5A31F4" />
-            <Text style={styles.metaText}>
-              {formatDate(event.start)}
+        {/* ── Likes count ── */}
+        {(event.totalLikes || 0) > 0 && (
+          <View style={styles.likesRow}>
+            <Text style={styles.likesText}>
+              {(event.totalLikes || 0).toLocaleString()} {event.totalLikes === 1 ? "like" : "likes"}
             </Text>
           </View>
+        )}
+
+        {/* ── Caption: Event name + description + view comments ── */}
+        <TouchableOpacity
+          onPress={() => handleEventPress(event._id)}
+          style={styles.captionContainer}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.captionEventName}>{safeText(event.name, "Untitled event")}</Text>
+          <Text style={styles.captionHost} numberOfLines={1}>
+            by {event.userId?.firstname || event.user?.firstname || "Unknown"}{" "}
+            {event.userId?.lastname || event.user?.lastname || ""}
+          </Text>
+          <Text style={styles.captionDescription} numberOfLines={3}>
+            {safeText(event.description, "")}
+          </Text>
+          {(event.totalComments || 0) > 0 && (
+            <Text
+              style={styles.viewComments}
+              onPress={() => router.push(`/(tabs)/Events/${event._id}?tab=comments`)}
+            >
+              View all {event.totalComments} comments
+            </Text>
+          )}
+        </TouchableOpacity>
+
+        {/* ── Footer strip: Date · Time · Capacity ── */}
+        <TouchableOpacity
+          style={styles.metaStrip}
+          onPress={() => handleEventPress(event._id)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="calendar-outline" size={12} color="#5A31F4" />
+          <Text style={styles.metaText}>{formatDate(event.start)}</Text>
           <View style={styles.metaDot} />
-          <View style={styles.metaItem}>
-            <Ionicons name="time-outline" size={13} color="#5A31F4" />
-            <Text style={styles.metaText}>
-              {formatTime(event.start)}
-            </Text>
-          </View>
+          <Ionicons name="time-outline" size={12} color="#5A31F4" />
+          <Text style={styles.metaText}>{formatTime(event.start)}</Text>
           <View style={styles.metaDot} />
-          <View style={styles.metaItem}>
-            <Ionicons name="people-outline" size={13} color="#5A31F4" />
-            <Text style={styles.metaText}>
-              {safeText(event.capacity, "Open")} capacity
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.actionBar}>
-          <View style={styles.actionLeft}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => handleLike(event._id, event.hasLiked)}
-            >
-              <Animated.View style={{ 
-                transform: [{ scale: animations[event._id] }] 
-              }}>
-                <Ionicons
-                  name={event.hasLiked ? "heart" : "heart-outline"}
-                  size={22}
-                  color={event.hasLiked ? "#FF3B30" : "#555"}
-                />
-              </Animated.View>
-              <Text style={[
-                styles.actionCount,
-                event.hasLiked && { color: "#FF3B30" }
-              ]}>
-                {event.totalLikes || 0}
+          <Ionicons name="people-outline" size={12} color="#5A31F4" />
+          <Text style={styles.metaText}>{safeText(event.capacity, "Open")} cap.</Text>
+          {event.isTicket && (
+            <>
+              <View style={styles.metaDot} />
+              <Ionicons name="ticket-outline" size={12} color="#FAB843" />
+              <Text style={[styles.metaText, { color: "#FAB843" }]}>
+                ₦{safeText(event.ticketAmount, "0")}
               </Text>
-            </TouchableOpacity>
+            </>
+          )}
+          {!event.isTicket && (
+            <>
+              <View style={styles.metaDot} />
+              <Ionicons name="ticket-outline" size={12} color="#22C55E" />
+              <Text style={[styles.metaText, { color: "#22C55E" }]}>Free</Text>
+            </>
+          )}
+        </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => router.push(
-                `/(tabs)/Events/${event._id}?tab=comments`
-              )}
-            >
-              <Ionicons name="chatbubble-outline" size={20} color="#555" />
-              <Text style={styles.actionCount}>
-                {event.totalComments || 0}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn}>
-              <Ionicons name="share-social-outline" size={20} color="#555" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.actionRight}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => handleBookmark(event._id, event.hasBookmarked)}
-            >
-              <Ionicons
-                name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
-                size={20}
-                color={event.hasBookmarked ? "#5A31F4" : "#555"}
-              />
-            </TouchableOpacity>
-
-            {!isDraftMode && !isOwnEvent && (
-              <TouchableOpacity
-                style={[
-                  styles.interestedBtn,
-                  event.hasInterested && styles.interestedBtnActive
-                ]}
-                onPress={() => handleInterested(
-                  event._id, event.hasInterested
-                )}
-              >
-                <Ionicons
-                  name={event.hasInterested 
-                    ? "star" : "star-outline"}
-                  size={14}
-                  color={event.hasInterested ? "#FAB843" : "#5A31F4"}
-                />
-                <Text style={[
-                  styles.interestedText,
-                  event.hasInterested && styles.interestedTextActive
-                ]}>
-                  {event.hasInterested ? "Going" : "Interested"}
+        {/* ── Hashtag pills from event category / address ── */}
+        {(event.category || event.address) && (
+          <View style={styles.tagsRow}>
+            {event.category && (
+              <View style={styles.tagPill}>
+                <Text style={styles.tagPillText}>#{String(event.category).toLowerCase().replace(/\s+/g, "")}</Text>
+              </View>
+            )}
+            {event.address && (
+              <View style={styles.tagPill}>
+                <Text style={styles.tagPillText} numberOfLines={1}>
+                  📍 {safeText(event.address, "").split(",")[0]}
                 </Text>
-              </TouchableOpacity>
+              </View>
             )}
-
-            {isDraftMode && (
-              <TouchableOpacity
-                style={styles.draftBtn}
-                onPress={() => router.replace(
-                  `/(tabs)/Events/${event._id}?isDraft=true`
-                )}
-              >
-                <Text style={styles.draftBtnText}>View Draft</Text>
-              </TouchableOpacity>
+            {event.isTicket && (
+              <View style={[styles.tagPill, { backgroundColor: "#FEF3E2" }]}>
+                <Text style={[styles.tagPillText, { color: "#C08000" }]}>#ticketed</Text>
+              </View>
             )}
           </View>
-        </View>
+        )}
+
       </View>
     );
   };
@@ -1272,12 +1382,12 @@ export default function ExploreEvents({
           visible={!!fullScreenMedia}
           transparent={true}
           animationType="fade"
-          onRequestClose={() => setFullScreenMedia(null)}
+          onRequestClose={closeFullScreen}
         >
           <View style={styles.fullScreenContainer}>
             <TouchableOpacity 
               style={styles.fullScreenCloseBtn}
-              onPress={() => setFullScreenMedia(null)}
+              onPress={closeFullScreen}
             >
               <Ionicons name="close" size={30} color="#FFF" />
             </TouchableOpacity>
@@ -1289,17 +1399,27 @@ export default function ExploreEvents({
                 showsHorizontalScrollIndicator={false}
                 contentOffset={{ x: fullScreenMedia.initialIndex * width, y: 0 }}
                 style={styles.fullScreenScroll}
+                onMomentumScrollEnd={async (e) => {
+                  // Pause when the user swipes to a different slide
+                  try {
+                    if (fullScreenVideoRef.current) {
+                      await fullScreenVideoRef.current.pauseAsync();
+                    }
+                  } catch (_) {}
+                }}
               >
                 {fullScreenMedia.media.map((item, index) => (
                   <View key={index} style={styles.fullScreenSlide}>
                     {item.type === "video" ? (
                       <Video
+                        // Only attach the ref to the initially focused slide
+                        ref={index === fullScreenMedia.initialIndex ? fullScreenVideoRef : null}
                         source={{ uri: item.uri }}
                         style={styles.fullScreenMedia}
                         useNativeControls
                         resizeMode="contain"
-                        shouldPlay={true}
-                        isLooping
+                        shouldPlay={index === fullScreenMedia.initialIndex}
+                        isLooping={false}
                         isMuted={false}
                         volume={1.0}
                       />
@@ -1476,31 +1596,35 @@ const styles = StyleSheet.create({
   eventCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 0,
-    marginBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    marginBottom: 2,
+    borderBottomWidth: 6,
+    borderBottomColor: "#F2F2F2",
     paddingBottom: 0,
   },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   hostLeft: {
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
-    gap: 10,
+    gap: 9,
   },
-  hostAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#ddd",
+  avatarRing: {
+    padding: 2,
+    borderRadius: 22,
     borderWidth: 2,
     borderColor: "#5A31F4",
+  },
+  hostAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#ddd",
   },
   hostInfo: {
     flex: 1,
@@ -1569,7 +1693,7 @@ const styles = StyleSheet.create({
     color: "#15803D",
   },
   descriptionContainer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingBottom: 10,
   },
   eventNameInline: {
@@ -1584,9 +1708,49 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
+  /* Instagram-style caption area */
+  captionContainer: {
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  captionHost: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 13,
+    color: "#1A1A1A",
+    lineHeight: 20,
+  },
+  captionEventName: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
+    color: "#1A1A1A",
+  },
+  captionDescription: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
+    color: "#555",
+    lineHeight: 19,
+    marginTop: 1,
+  },
+  viewComments: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
+    color: "#999",
+    marginTop: 5,
+  },
+  likesRow: {
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 0,
+  },
+  likesText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 13,
+    color: "#1A1A1A",
+  },
   flierContainer: {
     width: "100%",
-    height: height * 0.42,
+    height: height * 0.60,
     overflow: "hidden",
     backgroundColor: "#f0f0f0",
     borderRadius: 0,
@@ -1598,15 +1762,17 @@ const styles = StyleSheet.create({
   metaStrip: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: "#F8F4FF",
-    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#F2F2F2",
+    gap: 5,
+    flexWrap: "wrap",
   },
   metaItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
   },
   metaText: {
     fontFamily: "Poppins_400Regular",
@@ -1619,14 +1785,32 @@ const styles = StyleSheet.create({
     borderRadius: 1.5,
     backgroundColor: "#C4B5FD",
   },
+  tagsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  tagPill: {
+    backgroundColor: "#F3EDFF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  tagPillText: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
+    color: "#5A31F4",
+  },
+  /* Instagram-style action bar: icons only, no border, generous padding */
   actionBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 4,
   },
   actionLeft: {
     flexDirection: "row",
@@ -1642,14 +1826,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 6,
     borderRadius: 8,
   },
   actionCount: {
     fontFamily: "Poppins_500Medium",
-    fontSize: 12,
-    color: "#555",
+    fontSize: 13,
+    color: "#1A1A1A",
   },
   interestedBtn: {
     flexDirection: "row",
@@ -1813,9 +1997,9 @@ const styles = StyleSheet.create({
   },
   carouselContainer: {
     width: "100%",
-    height: height * 0.42,
+    height: height * 0.60,
     position: "relative",
-    backgroundColor: "#f0f0f0",
+    backgroundColor: "#000",
     overflow: "hidden",
   },
   carouselScroll: {
@@ -1824,12 +2008,44 @@ const styles = StyleSheet.create({
   },
   carouselSlide: {
     width: width,
-    height: height * 0.42,
+    height: height * 0.60,
     position: "relative",
   },
   carouselMedia: {
     width: "100%",
     height: "100%",
+    objectFit: "cover",
+  },
+  /* Full-cover overlay that sits above the video — handles tap-to-play */
+  videoOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  playIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    /* nudge the play icon 2px right to visually centre it */
+    paddingLeft: 4,
+  },
+  expandBtn: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.50)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   mediaCounter: {
     position: "absolute",

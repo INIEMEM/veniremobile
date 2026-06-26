@@ -16,6 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import EventsScreen from "../../components/EventsScreen";
+import PlacesScreen from "../../components/PlacesScreen";
 import ReelsScreen from "../../components/ReelsScreen";
 import FilterModal from "../../components/FilterModal";
 import { useAuth } from "../../context/AuthContext";
@@ -491,11 +492,7 @@ export default function Home() {
             />
           )
         ) : (
-          <View style={styles.comingSoonContainer}>
-            <Text style={styles.comingSoonText}>
-              📍 Feature Coming soon....
-            </Text>
-          </View>
+          <PlacesScreen searchQuery={searchQuery} />
         )}
       </Animated.View>
 
