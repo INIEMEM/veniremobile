@@ -293,7 +293,7 @@ function MessageBubble({
 
   if (
     msg.type === 'interactive_input' &&
-    (msg.control === 'select' || msg.control === 'segmented')
+    (msg.control === 'select' || msg.control === 'segmented' || msg.control === 'select_or_text')
   ) {
     return (
       <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -314,6 +314,37 @@ function MessageBubble({
                   <Text style={styles.selectOptionText}>{option.label}</Text>
                 </TouchableOpacity>
               ))}
+            </View>
+          )}
+          {msg.answered && (
+            <View style={styles.datePickedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+              <Text style={styles.datePickedText}>{msg.answeredLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  if (msg.type === 'interactive_input' && msg.control === 'advanced_event_fields') {
+    return (
+      <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.aiAvatar}>
+          <Ionicons name="sparkles" size={13} color="#FFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.aiText}>{msg.text}</Text>
+          {!msg.answered && (
+            <View style={styles.mediaChoiceWrap}>
+              <TouchableOpacity
+                style={styles.mediaSkipBtn}
+                onPress={() => onSubmitRawText(msg.id, 'Skip these', 'Skip these')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="arrow-forward-circle-outline" size={15} color="#5A31F4" />
+                <Text style={styles.mediaSkipText}>Skip for now</Text>
+              </TouchableOpacity>
             </View>
           )}
           {msg.answered && (
@@ -1264,7 +1295,8 @@ export default function AICreateEvent() {
           setAssistantText(event.content);
         } else if (
           pendingInputRef.current?.control === 'select' ||
-          pendingInputRef.current?.control === 'segmented'
+          pendingInputRef.current?.control === 'segmented' ||
+          pendingInputRef.current?.control === 'select_or_text'
         ) {
           const pending = pendingInputRef.current;
           pendingInputRef.current = null;
@@ -1358,6 +1390,18 @@ export default function AICreateEvent() {
             role: 'assistant',
             type: 'interactive_input',
             control: 'media_or_generate',
+            field: pending.field,
+            text: event.content,
+            answered: false,
+          });
+          setAssistantText(event.content);
+        } else if (pendingInputRef.current?.control === 'advanced_event_fields') {
+          const pending = pendingInputRef.current;
+          pendingInputRef.current = null;
+          appendMessage({
+            role: 'assistant',
+            type: 'interactive_input',
+            control: 'advanced_event_fields',
             field: pending.field,
             text: event.content,
             answered: false,
