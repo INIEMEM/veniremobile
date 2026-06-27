@@ -173,6 +173,7 @@ function MessageBubble({
   onSubmitEventType,
   onSubmitCurrency,
   onSubmitRawText,
+  onPublish,
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(15)).current;
@@ -230,7 +231,6 @@ function MessageBubble({
   }
 
   if (
-    msg.type === 'agent_message' &&
     /proceed to the final step/i.test(msg.text || '')
   ) {
     return (
@@ -867,6 +867,14 @@ function MessageBubble({
     );
   }
 
+  const isFinalMessage = 
+    !isUser &&
+    msg.text && (
+      msg.text.includes("Your event has been saved as a draft") ||
+      msg.text.includes("Your event is scheduled") ||
+      msg.text.includes("Handing off to the create event flow now")
+    );
+
   return (
     <Animated.View
       style={[
@@ -880,9 +888,21 @@ function MessageBubble({
           <Ionicons name="sparkles" size={13} color="#FFF" />
         </View>
       )}
-      <Text style={[styles.messageText, isUser ? styles.userText : styles.aiText]}>
-        {msg.text}
-      </Text>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.messageText, isUser ? styles.userText : styles.aiText]}>
+          {msg.text}
+        </Text>
+        {isFinalMessage && (
+          <TouchableOpacity 
+            style={[styles.publishBtn, { alignSelf: 'flex-start', marginTop: 10 }]} 
+            onPress={onPublish} 
+            activeOpacity={0.8}
+          >
+            <Ionicons name="send" size={13} color="#FFF" style={{ marginRight: 5 }} />
+            <Text style={styles.publishBtnText}>Publish Event</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </Animated.View>
   );
 }
@@ -1974,7 +1994,7 @@ export default function AICreateEvent() {
     }
     try {
       const token = await AsyncStorage.getItem('token');
-      await api.post('/event', {
+      const response = await api.post('/event', {
         name: eventPayload.name,
         description: eventPayload.description,
         address: eventPayload.address,
@@ -1995,7 +2015,13 @@ export default function AICreateEvent() {
       }, { headers: { Authorization: `Bearer ${token}` } });
 
       Toast.show({ type: 'success', text1: 'Event Published! 🎉', text2: 'Your AI-generated event is now live.' });
-      setTimeout(() => router.back(), 1800);
+      setTimeout(() => {
+        if (response.data?.data?._id) {
+          router.replace(`/(tabs)/Events/${response.data.data._id}`);
+        } else {
+          router.replace('/(tabs)/Events');
+        }
+      }, 1800);
     } catch (err) {
       const msg = err.response?.data?.error || err.response?.data?.message || 'Failed to publish event.';
       Toast.show({ type: 'error', text1: 'Publish Failed', text2: msg });
@@ -2182,6 +2208,7 @@ export default function AICreateEvent() {
               onSubmitEventType={handleSubmitEventType}
               onSubmitCurrency={handleSubmitCurrency}
               onSubmitRawText={handleSubmitRawText}
+              onPublish={handlePublish}
             />
           ))}
 
