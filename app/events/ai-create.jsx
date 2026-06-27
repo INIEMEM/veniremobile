@@ -172,6 +172,7 @@ function MessageBubble({
   onSubmitMedia,
   onSubmitEventType,
   onSubmitCurrency,
+  onSubmitRawText,
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(15)).current;
@@ -223,6 +224,39 @@ function MessageBubble({
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+      </Animated.View>
+    );
+  }
+
+  if (
+    msg.type === 'agent_message' &&
+    /proceed to the final step/i.test(msg.text || '')
+  ) {
+    return (
+      <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.aiAvatar}>
+          <Ionicons name="sparkles" size={13} color="#FFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.aiText}>{msg.text}</Text>
+          {!msg.answered && (
+            <View style={styles.mediaChoiceWrap}>
+              <TouchableOpacity
+                style={styles.eventTypeBtn}
+                onPress={() => onSubmitRawText(msg.id, 'Yes', 'Your event payload is ready.\nHanding off to the create event flow now.')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.eventTypeText}>Yes</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {msg.answered && (
+            <View style={styles.datePickedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+              <Text style={styles.datePickedText}>{msg.answeredLabel}</Text>
+            </View>
+          )}
         </View>
       </Animated.View>
     );
@@ -1925,6 +1959,13 @@ export default function AICreateEvent() {
   };
 
 
+  const handleSubmitRawText = (msgId, buttonLabel, textToSend) => {
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, answered: true, answeredLabel: buttonLabel } : m
+    ));
+    handleSend(buttonLabel, textToSend);
+  };
+
   // ─── Publish event ────────────────────────────────────────────────────────
   const handlePublish = async () => {
     if (!eventPayload.name || eventPayload.name === 'Your Event') {
@@ -1967,6 +2008,10 @@ export default function AICreateEvent() {
     outputRange: ['rgba(90,49,244,0.3)', 'rgba(139,92,246,0.8)'],
   });
 
+  const isEventReadyToPublish = messages.some(m => 
+    (m.text || '').includes('Handing off to the create event flow now')
+  );
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
 
@@ -1984,7 +2029,12 @@ export default function AICreateEvent() {
           <Animated.View style={[styles.aiDot, { shadowColor: glowColor }]} />
           <Text style={styles.headerTitle}>Venire AI</Text>
         </View>
-        <TouchableOpacity style={styles.publishBtn} onPress={handlePublish} activeOpacity={0.8}>
+        <TouchableOpacity 
+          style={[styles.publishBtn, !isEventReadyToPublish && { backgroundColor: '#A78BFA', opacity: 0.7 }]} 
+          onPress={handlePublish} 
+          disabled={!isEventReadyToPublish}
+          activeOpacity={0.8}
+        >
           <Ionicons name="send" size={13} color="#FFF" style={{ marginRight: 5 }} />
           <Text style={styles.publishBtnText}>Publish</Text>
         </TouchableOpacity>
@@ -2131,6 +2181,7 @@ export default function AICreateEvent() {
               onSubmitMedia={handleSubmitMedia}
               onSubmitEventType={handleSubmitEventType}
               onSubmitCurrency={handleSubmitCurrency}
+              onSubmitRawText={handleSubmitRawText}
             />
           ))}
 
