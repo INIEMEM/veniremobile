@@ -18,6 +18,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { PLACE_CATEGORIES } from "../constants/placesMockData";
 import { useToast } from "../context/ToastContext";
+import api from "../utils/axiosInstance";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
 
@@ -80,6 +82,8 @@ export default function UploadPlaceModal({ visible, onClose, onSuccess }) {
       const newItems = result.assets.map((a) => ({
         uri: a.uri,
         type: a.type === "video" ? "video" : "image",
+        mimeType: a.mimeType,
+        name: a.fileName,
       }));
       setMedia((prev) => [...prev, ...newItems].slice(0, 5));
     }
@@ -100,52 +104,128 @@ export default function UploadPlaceModal({ visible, onClose, onSuccess }) {
     return true;
   };
 
-  // ── Submit (mocked — swap for real API call when backend is ready) ──
+
+  // ── S3 Upload Helpers ────────────────────────────────────
+  const getSignedUrl = async (fileName, fileType) => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const response = await api.put(
+        '/auth/sign-s3',
+        { fileName, fileType },
+        {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          timeout: 30000,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error getting signed URL:', error);
+      throw error;
+    }
+  };
+
+  const uploadMediaToS3 = async (mediaUri, uploadURL, mimeType) => {
+    try {
+      const response = await fetch(mediaUri);
+      const blob = await response.blob();
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+      const uploadResponse = await fetch(uploadURL, {
+        method: 'PUT',
+        body: blob,
+        headers: { 'Content-Type': mimeType },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload media to S3');
+      }
+      return true;
+    } catch (error) {
+      console.error('Error uploading to S3:', error);
+      throw error;
+    }
+  };
+
+  const uploadAllMedia = async () => {
+    const uploadedMedia = [];
+
+    for (let i = 0; i < media.length; i++) {
+      const item = media[i];
+      const mediaType = item.type === 'video' ? 'video' : 'image';
+      let mimeType = item.mimeType || 'application/octet-stream';
+      if (!item.mimeType && mediaType === 'video') {
+        mimeType = item.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
+      } else if (!item.mimeType) {
+        mimeType = 'image/jpeg';
+      }
+      
+      const name = item.name || `place_${mediaType}_${Date.now()}.${mediaType === 'video' ? 'mp4' : 'jpg'}`;
+
+      try {
+        const signedData = await getSignedUrl(name, mimeType);
+        const { uploadURL } = signedData;
+        await uploadMediaToS3(item.uri, uploadURL, mimeType);
+        const mediaUrl = uploadURL.split('?')[0];
+        
+        uploadedMedia.push({
+          uri: mediaUrl,
+          type: mediaType
+        });
+      } catch (error) {
+        throw new Error(`Failed to upload ${mediaType} ${i + 1}`);
+      }
+    }
+
+    return uploadedMedia;
+  };
+
+  // ── Submit ───────────────────────────────────────────────
+
   const handleSubmit = async () => {
     if (!validate()) return;
     setSubmitting(true);
 
     try {
-      // ────────────────────────────────────────────────────
-      // TODO (Backend): Replace this timeout with a real API call:
-      //
-      // const formData = new FormData();
-      // formData.append("name", name.trim());
-      // formData.append("category", category);
-      // formData.append("description", description.trim());
-      // formData.append("address", address.trim());
-      // formData.append("city", city.trim());
-      // formData.append("rating", String(rating));
-      // formData.append("priceRange", priceRange);
-      // formData.append("tags", JSON.stringify(
-      //   tags.split(",").map(t => t.trim()).filter(Boolean)
-      // ));
-      // media.forEach((item, i) => {
-      //   formData.append("media", {
-      //     uri: item.uri,
-      //     name: `media_${i}.${item.type === "video" ? "mp4" : "jpg"}`,
-      //     type: item.type === "video" ? "video/mp4" : "image/jpeg",
-      //   });
-      // });
-      // const token = await AsyncStorage.getItem("token");
-      // const res = await api.post("/place", formData, {
-      //   headers: {
-      //     Authorization: `Bearer ${token}`,
-      //     "Content-Type": "multipart/form-data",
-      //   },
-      // });
-      // if (res.data?.success) { ... }
-      // ────────────────────────────────────────────────────
+      // 1. Upload to S3
+      const uploadedMedia = await uploadAllMedia();
 
-      // Mock 1.5s upload delay
-      await new Promise((r) => setTimeout(r, 1500));
-
-      toast.success("Your place has been shared! 📍");
-      resetForm();
-      onSuccess?.();
-      onClose();
+      // 2. Prepare JSON payload
+      const placeData = {
+        name: name.trim(),
+        category: category,
+        description: description.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        rating: rating,
+        priceRange: priceRange,
+        tags: tags.split(",").map(t => t.trim()).filter(Boolean),
+        media: uploadedMedia,
+      };
+      
+      const token = await AsyncStorage.getItem("token");
+      const res = await api.post("/place", placeData, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (res.data?.success) {
+        toast.success("Your place has been shared! 📍");
+        resetForm();
+        onSuccess?.();
+        onClose();
+      } else {
+        toast.error(res.data?.message || "Failed to upload place");
+      }
     } catch (err) {
-      toast.error("Failed to upload. Please try again.");
+      console.error("Upload error:", err?.response?.data || err?.message || err);
+      toast.error(err?.response?.data?.message || err?.response?.data?.error || err?.message || "Failed to upload. Please try again.");
     } finally {
       setSubmitting(false);
     }

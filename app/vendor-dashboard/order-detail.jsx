@@ -46,7 +46,9 @@ export default function VendorOrderDetail() {
   // ── Fetch order + messages ─────────────────────────────────────────────────
   const fetchOrder = useCallback(async () => {
     try {
-      const res = await api.get(`/vendor/orders/${orderId}`);
+      const res = await api.get(`/vendor/order/${orderId}`);
+
+      console.log('order', res.data.data);
       if (res.data?.success) setOrder(res.data.data);
     } catch (e) {
       console.log('fetch order error', e?.response?.data || e?.message);

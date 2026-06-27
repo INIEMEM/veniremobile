@@ -16,7 +16,7 @@ import Toast from "react-native-toast-message";
 import CommentInput from "./CommentInput";
 import CommentItem from "./CommentItem";
 
-export default function CommentsSection({ eventId }) {
+export default function CommentsSection({ eventId, nested = true }) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -135,12 +135,8 @@ export default function CommentsSection({ eventId }) {
     );
   }
 
-  return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-    >
+  const content = (
+    <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerText}>
           Comments ({comments.length})
@@ -151,6 +147,12 @@ export default function CommentsSection({ eventId }) {
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>No comments yet</Text>
           <Text style={styles.emptySubtext}>Be the first to comment!</Text>
+        </View>
+      ) : nested ? (
+        <View style={styles.listContent}>
+          {comments.map((item) => (
+            <View key={item._id}>{renderComment({ item })}</View>
+          ))}
         </View>
       ) : (
         <FlatList
@@ -174,6 +176,20 @@ export default function CommentsSection({ eventId }) {
         onCancelReply={handleCancelReply}
         submitting={submitting}
       />
+    </View>
+  );
+
+  if (nested) {
+    return content;
+  }
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
+      {content}
     </KeyboardAvoidingView>
   );
 }

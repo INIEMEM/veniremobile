@@ -597,7 +597,7 @@ export default function ProfilePage() {
           <View style={styles.walletContainer}>
             <View style={styles.balanceCard}>
               <Text style={styles.balanceLabel}>Total Balance</Text>
-              <Text style={styles.balanceAmount}>₦{walletBalance.toLocaleString()}</Text>
+              <Text style={styles.balanceAmount}>₦{userProfile.wallet?.NGN?.toLocaleString()}</Text>
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
                 <TouchableOpacity 
                   style={[styles.withdrawBtn, { flex: 1, backgroundColor: '#2ECC71' }]}

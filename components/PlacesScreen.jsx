@@ -15,12 +15,20 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import PlaceCard from "./PlaceCard";
 import UploadPlaceModal from "./UploadPlaceModal";
-import MOCK_PLACES, { PLACE_CATEGORIES } from "../constants/placesMockData";
+import { PLACE_CATEGORIES } from "../constants/placesMockData";
+import api from "../utils/axiosInstance";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useToast } from "../context/ToastContext";
+import { useEffect } from "react";
 
 const { width } = Dimensions.get("window");
 
 export default function PlacesScreen({ searchQuery = "" }) {
-  const [places, setPlaces] = useState(MOCK_PLACES);
+  const [places, setPlaces] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const toast = useToast();
   const [activeCategory, setActiveCategory] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
   const [uploadVisible, setUploadVisible] = useState(false);
@@ -37,19 +45,67 @@ export default function PlacesScreen({ searchQuery = "" }) {
     return matchCat && matchSearch;
   });
 
-  // ── Pull to refresh (mocked) ─────────────────────────────
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    // TODO (Backend): Replace with real fetch:
-    // const res = await api.get(`/place?category=${activeCategory}`);
-    // setPlaces(res.data.data);
-    await new Promise((r) => setTimeout(r, 800));
-    setRefreshing(false);
-  }, [activeCategory]);
+  
+  // ── Fetch places from backend ────────────────────────────
+  const fetchPlaces = useCallback(async (pageNum = 1, shouldRefresh = false) => {
+    try {
+      if (shouldRefresh) setRefreshing(true);
+      else if (pageNum === 1) setLoading(true);
 
-  // ── Like handler (optimistic) ────────────────────────────
-  const handleLike = useCallback((placeId, currentlyLiked) => {
-    // TODO (Backend): POST /place/like or /place/unlike
+      const isGuest = await AsyncStorage.getItem("isGuest");
+      const endpoint = isGuest === "true" ? "/place/explore" : "/place";
+      
+      const res = await api.get(endpoint, {
+        params: {
+          page: pageNum,
+          limit: 10,
+          category: activeCategory !== "all" ? activeCategory : undefined,
+          search: searchQuery || undefined,
+        }
+      });
+
+      if (res.data?.success) {
+        const newPlaces = res.data.data || [];
+        setPlaces(prev => shouldRefresh || pageNum === 1 ? newPlaces : [...prev, ...newPlaces]);
+        setHasMore(res.data.pagination?.hasMore ?? newPlaces.length === 10);
+        setPage(pageNum);
+      }
+    } catch (err) {
+      console.error("Error fetching places:", err?.response?.data || err?.message);
+      if (pageNum === 1) setPlaces([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [activeCategory, searchQuery]);
+
+  useEffect(() => {
+    fetchPlaces(1);
+  }, [fetchPlaces]);
+
+  // ── Pull to refresh ──────────────────────────────────────
+  const onRefresh = useCallback(() => {
+    fetchPlaces(1, true);
+  }, [fetchPlaces]);
+
+  // ── Load more ────────────────────────────────────────────
+  const handleLoadMore = () => {
+    if (!loading && !refreshing && hasMore) {
+      fetchPlaces(page + 1);
+    }
+  };
+
+
+  
+  // ── Like handler ─────────────────────────────────────────
+  const handleLike = useCallback(async (placeId, currentlyLiked) => {
+    const isGuest = await AsyncStorage.getItem("isGuest");
+    if (isGuest === "true") {
+      toast.error("Please log in to like places");
+      return;
+    }
+    
+    // Optimistic update
     setPlaces((prev) =>
       prev.map((p) =>
         p._id === placeId
@@ -61,11 +117,38 @@ export default function PlacesScreen({ searchQuery = "" }) {
           : p
       )
     );
-  }, []);
+    
+    try {
+      const endpoint = currentlyLiked ? "/place/unlike" : "/place/like";
+      await api.post(endpoint, { placeId });
+    } catch (error) {
+      // Revert on error
+      setPlaces((prev) =>
+        prev.map((p) =>
+          p._id === placeId
+            ? {
+                ...p,
+                hasLiked: currentlyLiked,
+                totalLikes: currentlyLiked ? p.totalLikes + 1 : p.totalLikes - 1,
+              }
+            : p
+        )
+      );
+      toast.error("Failed to like place");
+    }
+  }, [toast]);
 
-  // ── Save handler (optimistic) ────────────────────────────
-  const handleSave = useCallback((placeId, currentlySaved) => {
-    // TODO (Backend): POST /place/save or /place/unsave
+
+  
+  // ── Save handler ─────────────────────────────────────────
+  const handleSave = useCallback(async (placeId, currentlySaved) => {
+    const isGuest = await AsyncStorage.getItem("isGuest");
+    if (isGuest === "true") {
+      toast.error("Please log in to save places");
+      return;
+    }
+
+    // Optimistic update
     setPlaces((prev) =>
       prev.map((p) =>
         p._id === placeId
@@ -73,7 +156,23 @@ export default function PlacesScreen({ searchQuery = "" }) {
           : p
       )
     );
-  }, []);
+    
+    try {
+      const endpoint = currentlySaved ? "/place/unsave" : "/place/save";
+      await api.post(endpoint, { placeId });
+    } catch (error) {
+      // Revert on error
+      setPlaces((prev) =>
+        prev.map((p) =>
+          p._id === placeId
+            ? { ...p, hasSaved: currentlySaved, totalSaves: currentlySaved ? p.totalSaves + 1 : p.totalSaves - 1 }
+            : p
+        )
+      );
+      toast.error("Failed to save place");
+    }
+  }, [toast]);
+
 
   // ── FAB pulse animation ──────────────────────────────────
   const pulseFab = () => {
@@ -173,7 +272,12 @@ export default function PlacesScreen({ searchQuery = "" }) {
 
   return (
     <View style={styles.container}>
-      <FlatList
+      {loading && page === 1 ? (
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color="#5A31F4" />
+        </View>
+      ) : (
+        <FlatList
         data={filtered}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
@@ -189,11 +293,15 @@ export default function PlacesScreen({ searchQuery = "" }) {
         }
         removeClippedSubviews={Platform.OS === "android"}
         initialNumToRender={3}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
         maxToRenderPerBatch={4}
         windowSize={5}
         updateCellsBatchingPeriod={80}
         contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : undefined}
-      />
+          ListFooterComponent={hasMore && page > 1 ? <ActivityIndicator size="small" color="#5A31F4" style={{ marginVertical: 20 }} /> : null}
+        />
+      )}
 
       {/* ── Floating Action Button ──────────────────────── */}
       <Animated.View

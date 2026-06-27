@@ -22,6 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import EventSource from 'react-native-sse';
 import api from '../../utils/axiosInstance';
+import * as ImagePicker from 'expo-image-picker';
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -397,10 +398,10 @@ function MessageBubble({
               <TouchableOpacity
                 style={[
                   styles.locationSubmitBtn,
-                  !locationText.trim() && styles.locationSubmitBtnDisabled,
+                  (!locationText.trim() || isStreaming) && styles.locationSubmitBtnDisabled,
                 ]}
                 onPress={() => onSubmitLocation(msg.id, locationText)}
-                disabled={!locationText.trim()}
+                disabled={!locationText.trim() || isStreaming}
                 activeOpacity={0.8}
               >
                 <Text style={styles.locationSubmitText}>Use this location</Text>
@@ -727,7 +728,7 @@ function MessageBubble({
     );
   }
 
-  if (msg.type === 'interactive_input' && msg.control === 'media_or_generate') {
+  if (msg.type === 'interactive_input' && (msg.control === 'media_or_generate' || msg.control === 'media_upload_or_generate')) {
     return (
       <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
         <View style={styles.aiAvatar}>
@@ -738,19 +739,27 @@ function MessageBubble({
           {!msg.answered && (
             <View style={styles.mediaChoiceWrap}>
               <TouchableOpacity
+                style={styles.mediaUploadBtn}
+                onPress={() => onSubmitMedia(msg.id, 'upload')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="cloud-upload-outline" size={15} color="#FFF" />
+                <Text style={styles.mediaUploadText}>📸 Upload my image</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={styles.mediaGenerateBtn}
                 onPress={() => onSubmitMedia(msg.id, 'generate')}
                 activeOpacity={0.8}
               >
                 <Ionicons name="color-wand-outline" size={15} color="#FFF" />
-                <Text style={styles.mediaGenerateText}>Generate flyer</Text>
+                <Text style={styles.mediaGenerateText}>🎨 Generate AI flyer</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.mediaSkipBtn}
                 onPress={() => onSubmitMedia(msg.id, 'skip')}
                 activeOpacity={0.8}
               >
-                <Ionicons name="image-outline" size={15} color="#5A31F4" />
+                <Ionicons name="arrow-forward-circle-outline" size={15} color="#5A31F4" />
                 <Text style={styles.mediaSkipText}>Skip for now</Text>
               </TouchableOpacity>
             </View>
@@ -1042,9 +1051,9 @@ export default function AICreateEvent() {
 
   // ─── SSE Streaming Call ──────────────────────────────────────────────────
   const handleSend = async (overrideText, apiOverrideText) => {
-    const text = typeof overrideText === 'string' ? overrideText : input.trim();
-    const apiText = typeof apiOverrideText === 'string' ? apiOverrideText : text;
-    if (!text || loadingChat || (isStreaming && typeof overrideText !== 'string')) return;
+  const text = typeof overrideText === 'string' ? overrideText : input.trim();
+  const apiText = typeof apiOverrideText === 'string' ? apiOverrideText : text;
+  if (!text || loadingChat || isStreaming) return; // ← block ALL sends while streaming, not just typed ones
 
     const userMsg = { role: 'user', type: 'user', text };
     appendMessage(userMsg);
@@ -1098,10 +1107,7 @@ export default function AICreateEvent() {
           m.type === 'agent_action' ? { ...m, done: true } : m
         ));
         if (assistantText) {
-          setConversationHistory(prev => {
-            // Avoid duplicating the assistant text in history if we already added it during streaming
-            return [...prev, { role: 'assistant', content: assistantText }];
-          });
+          setConversationHistory(prev => [...prev, { role: 'assistant', content: assistantText }]);
         }
         scrollToBottom();
       };
@@ -1109,13 +1115,10 @@ export default function AICreateEvent() {
       // Safety timeout: force-stop after 1 second of inactivity if backend hangs
       const resetIdleTimer = () => {
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
-          finishStream(es);
-        }, 1500); // 1.5 seconds of inactivity = assume done
+        idleTimer = setTimeout(() => finishStream(es), 8000); // safety net only, not the main path
       };
 
-      resetIdleTimer(); // start the timer initially
-
+      resetIdleTimer();
       es.addEventListener('message', (event) => {
         console.log("Raw SSE message event received:", event.data);
         resetIdleTimer();
@@ -1126,24 +1129,27 @@ export default function AICreateEvent() {
         try {
           const parsed = JSON.parse(event.data);
           handleSSEEvent(parsed, (txt) => { assistantText = txt; });
+          if (parsed.type === 'done' || parsed.type === 'error' || parsed.type === 'duplicate') {
+            finishStream(es); // ← close immediately, don't wait for idle timeout
+          }
         } catch (_) {}
       });
 
-      ['agent_thought','agent_action','agent_message','event_payload',
-       'ai_chat','vendor_suggestions','venue_suggestions','category_suggestions','done','error',
-       'date_picker','input_request'].forEach((evtType) => {
-        es.addEventListener(evtType, (event) => {
-          console.log(`Raw SSE ${evtType} event received:`, event.data);
-          resetIdleTimer();
-          try {
-            const parsed = JSON.parse(event.data);
-            handleSSEEvent({ type: evtType, ...parsed }, (txt) => { assistantText = txt; });
-            if (evtType === 'done' || evtType === 'error') {
-              finishStream(es);
-            }
-          } catch (_) {}
-        });
-      });
+      // ['agent_thought','agent_action','agent_message','event_payload',
+      // 'ai_chat','vendor_suggestions','venue_suggestions','category_suggestions','done','error',
+      // 'date_picker','input_request','duplicate'].forEach((evtType) => {  // ← added 'duplicate'
+      //   es.addEventListener(evtType, (event) => {
+      //     console.log(`Raw SSE ${evtType} event received:`, event.data);
+      //     resetIdleTimer();
+      //     try {
+      //       const parsed = JSON.parse(event.data);
+      //       handleSSEEvent({ type: evtType, ...parsed }, (txt) => { assistantText = txt; });
+      //       if (evtType === 'done' || evtType === 'error' || evtType === 'duplicate') {
+      //         finishStream(es);
+      //       }
+      //     } catch (_) {}
+      //   });
+      // });
 
       es.addEventListener('error', (err) => {
         console.error('SSE error:', err);
@@ -1181,7 +1187,10 @@ export default function AICreateEvent() {
         // Also add a persistent action card
         appendMessage({ role: 'assistant', type: 'agent_action', tool: event.tool, text: event.content });
         break;
-
+      case 'duplicate':
+      // Backend detected this as a repeat of an in-flight request — just close quietly, no new bubble
+      setActiveActions([]);
+      break;
       case 'agent_message':
         setActiveActions([]);
         if (pendingInputRef.current?.control === 'datetime') {
@@ -1288,7 +1297,7 @@ export default function AICreateEvent() {
             answered: false,
           });
           setAssistantText(event.content);
-        } else if (pendingInputRef.current?.control === 'media_or_generate') {
+        } else if (pendingInputRef.current?.control === 'media_or_generate' || pendingInputRef.current?.control === 'media_upload_or_generate') {
           const pending = pendingInputRef.current;
           pendingInputRef.current = null;
           appendMessage({
@@ -1474,6 +1483,76 @@ export default function AICreateEvent() {
       `The event ${fieldLabel} date and time is: ${isoDate}`,
       `The event ${fieldLabel} date and time is: ${isoDate}\nStructured response: ${JSON.stringify({ [field]: isoDate })}`
     );
+  };
+
+  // ─── S3 Upload Helpers ────────────────────────────────────────────────────
+  const getSignedUrl = async (fileName, fileType) => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const response = await api.put(
+        '/auth/sign-s3',
+        { fileName, fileType },
+        {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          timeout: 30000,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error getting signed URL:', error);
+      throw error;
+    }
+  };
+
+  const uploadMediaToS3 = async (mediaUri, uploadURL, mimeType) => {
+    try {
+      const response = await fetch(mediaUri);
+      const blob = await response.blob();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      const uploadResponse = await fetch(uploadURL, {
+        method: 'PUT',
+        body: blob,
+        headers: { 'Content-Type': mimeType },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!uploadResponse.ok) throw new Error('Failed to upload media to S3');
+      return true;
+    } catch (error) {
+      console.error('Error uploading to S3:', error);
+      throw error;
+    }
+  };
+
+  const pickAndUploadImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Toast.show({ type: 'error', text1: 'Permission Required', text2: 'Please grant photo library access.' });
+      return null;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
+      quality: 0.85,
+      exif: false,
+    });
+
+    if (result.canceled || !result.assets?.length) return null;
+
+    const uploadedUrls = [];
+    for (const asset of result.assets) {
+      const mimeType = asset.mimeType || 'image/jpeg';
+      const fileName = asset.fileName || `event_image_${Date.now()}.jpg`;
+      const signedData = await getSignedUrl(fileName, mimeType);
+      const { uploadURL } = signedData;
+      await uploadMediaToS3(asset.uri, uploadURL, mimeType);
+      uploadedUrls.push(uploadURL.split('?')[0]);
+    }
+
+    return uploadedUrls;
   };
 
   // ─── Generate AI Poster ───────────────────────────────────────────────────
@@ -1765,9 +1844,38 @@ export default function AICreateEvent() {
 
   const handleSubmitMedia = async (msgId, action) => {
     const shouldGenerate = action === 'generate';
+    const shouldUpload = action === 'upload';
     let posterUrl = null;
+    let uploadedImages = [];
 
-    if (shouldGenerate) {
+    if (shouldUpload) {
+      // Show uploading status
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, uploading: true } : m
+      ));
+
+      try {
+        const urls = await pickAndUploadImage();
+        if (!urls || urls.length === 0) {
+          // User cancelled picker — reset uploading state
+          setMessages(prev => prev.map(m =>
+            m.id === msgId ? { ...m, uploading: false } : m
+          ));
+          return;
+        }
+        uploadedImages = urls;
+      } catch (err) {
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, uploading: false } : m
+        ));
+        Toast.show({
+          type: 'error',
+          text1: 'Upload failed',
+          text2: err?.message || 'Could not upload image. Please try again.',
+        });
+        return;
+      }
+    } else if (shouldGenerate) {
       posterUrl = await generatePosterUrl();
       if (!posterUrl) {
         Toast.show({
@@ -1777,37 +1885,42 @@ export default function AICreateEvent() {
         });
         return;
       }
+      uploadedImages = [posterUrl];
     }
 
-    const payload = shouldGenerate
-      ? {
-          images: [posterUrl],
-          videos: [],
-          type: 'images',
-          generatePoster: true,
-        }
-      : {
-          images: [],
-          videos: [],
-          type: 'images',
-          generatePoster: false,
-        };
+    const payload = {
+      images: uploadedImages,
+      videos: [],
+      type: 'images',
+      generatePoster: shouldGenerate,
+    };
 
-    const label = shouldGenerate ? 'Generate flyer' : 'Skip flyer for now';
+    const answeredLabel = shouldUpload
+      ? `${uploadedImages.length} image${uploadedImages.length !== 1 ? 's' : ''} uploaded`
+      : shouldGenerate
+      ? 'AI flyer generated'
+      : 'Skipped';
+
+    const humanLabel = shouldUpload
+      ? `Uploaded ${uploadedImages.length} image${uploadedImages.length !== 1 ? 's' : ''}`
+      : shouldGenerate
+      ? 'Generate flyer'
+      : 'Skip flyer for now';
 
     setMessages(prev => prev.map(m =>
-      m.id === msgId ? { ...m, answered: true, answeredLabel: shouldGenerate ? 'Flyer generated' : 'Skipped' } : m
+      m.id === msgId ? { ...m, answered: true, uploading: false, answeredLabel } : m
     ));
 
     setEventPayload(prev => ({
       ...prev,
       ...payload,
       ...(posterUrl && { posterUrl }),
+      ...(uploadedImages.length > 0 && !posterUrl && { posterUrl: uploadedImages[0] }),
     }));
 
     handleSend(
-      label,
-      `Selected event media: ${label}\nStructured response: ${JSON.stringify(payload)}`
+      humanLabel,
+      `Selected event media: ${humanLabel}\nStructured response: ${JSON.stringify(payload)}`
     );
   };
 
@@ -2005,6 +2118,7 @@ export default function AICreateEvent() {
             <MessageBubble 
               key={msg.id} 
               msg={msg} 
+              isStreaming={isStreaming}
               onSelectVenue={handleSelectVenue}
               onSelectVendor={handleSelectVendor}
               onRequestDatePick={handleRequestDatePick}
@@ -2816,6 +2930,21 @@ const styles = StyleSheet.create({
   mediaChoiceWrap: {
     marginTop: 10,
     gap: 10,
+  },
+  mediaUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: '#10B981',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  mediaUploadText: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 12,
+    color: '#FFF',
   },
   mediaGenerateBtn: {
     flexDirection: 'row',

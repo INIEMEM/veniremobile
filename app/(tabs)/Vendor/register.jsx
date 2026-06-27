@@ -343,7 +343,7 @@ export default function VendorRegistration() {
           .filter((p) => p.name.trim())
           .map((p) => ({
             name: p.name.trim(),
-            pictures: p.pictures, // already S3 URLs
+            picture: p.pictures, // already S3 URLs
             price: parseFloat(p.price) || 0,
             isPriceFixed: p.isPriceFixed,
             deliveryTime: p.deliveryTime.trim(),
@@ -360,6 +360,7 @@ export default function VendorRegistration() {
     } catch (e) {
       const msg = e.response?.data?.message || "Failed to submit. Please try again.";
       showError(msg);
+      console.log('vendor register error ', e.response)
     } finally {
       setSubmitting(false);
     }

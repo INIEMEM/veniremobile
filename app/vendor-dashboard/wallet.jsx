@@ -60,6 +60,7 @@ export default function VendorWalletScreen() {
       const dashRes = await api.get('/vendor/dashboard', {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log("The dashboard data",dashRes.data)
       if (dashRes.data?.success && dashRes.data?.data) {
         setWalletBalance(dashRes.data.data.totalRevenue || 0);
       }

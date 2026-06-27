@@ -17,6 +17,7 @@ const PUBLIC_ENDPOINTS = [
   '/auth/forgot',
   '/auth/reset',
   '/event/explore',  // Public explore endpoint
+  '/place/explore',  // Public explore endpoint for places
 ];
 
 // Check if endpoint is public

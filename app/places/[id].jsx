@@ -19,7 +19,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video } from "expo-av";
-import MOCK_PLACES, { PLACE_CATEGORIES } from "../../constants/placesMockData";
+import { PLACE_CATEGORIES } from "../../constants/placesMockData";
+import api from "../../utils/axiosInstance";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useToast } from "../../context/ToastContext";
 
 const { width, height } = Dimensions.get("window");
@@ -52,31 +54,73 @@ const timeAgo = (iso) => {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 };
 
-// Mock comments for detail view
-const MOCK_COMMENTS = [
-  { _id: "c1", userId: { firstname: "Sola", lastname: "Akin", profile_picture: "https://randomuser.me/api/portraits/men/12.jpg" }, text: "This place is incredible! Went last Saturday and the vibe was immaculate 🔥", createdAt: new Date(Date.now() - 3600000).toISOString() },
-  { _id: "c2", userId: { firstname: "Temi", lastname: "Babs", profile_picture: "https://randomuser.me/api/portraits/women/25.jpg" }, text: "Confirmed, the food here is 10/10. The service was top tier too!", createdAt: new Date(Date.now() - 7200000).toISOString() },
-  { _id: "c3", userId: { firstname: "Kola", lastname: "Daodu", profile_picture: "https://randomuser.me/api/portraits/men/33.jpg" }, text: "Been wanting to visit this place for a while. Definitely going next weekend 👀", createdAt: new Date(Date.now() - 86400000).toISOString() },
-];
+
 
 export default function PlaceDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const toast = useToast();
 
-  // Find place from mock data
-  const [place, setPlace] = useState(MOCK_PLACES.find((p) => p._id === id) || null);
+  const [place, setPlace] = useState(null);
+  const [loadingPlace, setLoadingPlace] = useState(true);
   const [activeIdx, setActiveIdx] = useState(0);
   const [playingKey, setPlayingKey] = useState(null);
   const [fullScreen, setFullScreen] = useState(null);
-  const [comments, setComments] = useState(MOCK_COMMENTS);
+  const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(true);
   const [commentText, setCommentText] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const [showAllDesc, setShowAllDesc] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
+
+  // ── Fetch Place Data ───────────────────────────────────────
+  useEffect(() => {
+    const fetchPlace = async () => {
+      try {
+        const res = await api.get(`/place/key?key=_id&value=${id}`);
+        if (res.data?.success) {
+          setPlace(res.data.data);
+        }
+      } catch (err) {
+        console.error("Error fetching place:", err?.response?.data || err?.message);
+        toast.error("Failed to load place details");
+      } finally {
+        setLoadingPlace(false);
+      }
+    };
+    fetchPlace();
+  }, [id, toast]);
+
+  // ── Fetch Comments ─────────────────────────────────────────
+  const fetchComments = useCallback(async () => {
+    try {
+      const res = await api.get(`/place/comment?placeId=${id}`);
+      if (res.data?.success) {
+        setComments(res.data.data || []);
+      }
+    } catch (err) {
+      console.error("Error fetching comments:", err?.response?.data || err?.message);
+    } finally {
+      setLoadingComments(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchComments();
+  }, [fetchComments]);
+
+
   const videoRefs = useRef({});
   const fsVideoRef = useRef(null);
+
+  if (loadingPlace) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#111" }}>
+        <ActivityIndicator size="large" color="#5A31F4" />
+      </View>
+    );
+  }
 
   const cat = PLACE_CATEGORIES.find((c) => c.key === place?.category) || PLACE_CATEGORIES[0];
   const mediaCount = place?.media?.length || 0;
@@ -113,46 +157,91 @@ export default function PlaceDetailScreen() {
     setFullScreen(null);
   };
 
+  
   // ── Like ─────────────────────────────────────────────────
-  const handleLike = () => {
+  const handleLike = async () => {
+    const isGuest = await AsyncStorage.getItem("isGuest");
+    if (isGuest === "true") {
+      toast.error("Please log in to like places");
+      return;
+    }
+    
     Animated.sequence([
       Animated.timing(scaleAnim, { toValue: 1.5, duration: 140, useNativeDriver: true }),
       Animated.spring(scaleAnim, { toValue: 1, friction: 3, useNativeDriver: true }),
     ]).start();
-    // TODO (Backend): POST /place/like or /place/unlike
+    
+    const currentlyLiked = place.hasLiked;
+    
     setPlace((p) => ({
       ...p,
-      hasLiked: !p.hasLiked,
-      totalLikes: p.hasLiked ? p.totalLikes - 1 : p.totalLikes + 1,
+      hasLiked: !currentlyLiked,
+      totalLikes: currentlyLiked ? p.totalLikes - 1 : p.totalLikes + 1,
     }));
+    
+    try {
+      const endpoint = currentlyLiked ? "/place/unlike" : "/place/like";
+      await api.post(endpoint, { placeId: id });
+    } catch (error) {
+      setPlace((p) => ({
+        ...p,
+        hasLiked: currentlyLiked,
+        totalLikes: currentlyLiked ? p.totalLikes + 1 : p.totalLikes - 1,
+      }));
+      toast.error("Failed to like place");
+    }
   };
 
+
+  
   // ── Save ─────────────────────────────────────────────────
-  const handleSave = () => {
-    // TODO (Backend): POST /place/save or /place/unsave
-    setPlace((p) => ({ ...p, hasSaved: !p.hasSaved }));
-    toast.success(place.hasSaved ? "Removed from saved" : "Place saved! 🔖");
+  const handleSave = async () => {
+    const isGuest = await AsyncStorage.getItem("isGuest");
+    if (isGuest === "true") {
+      toast.error("Please log in to save places");
+      return;
+    }
+
+    const currentlySaved = place.hasSaved;
+    setPlace((p) => ({ ...p, hasSaved: !currentlySaved, totalSaves: currentlySaved ? p.totalSaves - 1 : p.totalSaves + 1 }));
+    
+    try {
+      const endpoint = currentlySaved ? "/place/unsave" : "/place/save";
+      await api.post(endpoint, { placeId: id });
+      toast.success(currentlySaved ? "Removed from saved" : "Place saved! 🔖");
+    } catch (error) {
+      setPlace((p) => ({ ...p, hasSaved: currentlySaved, totalSaves: currentlySaved ? p.totalSaves + 1 : p.totalSaves - 1 }));
+      toast.error("Failed to save place");
+    }
   };
 
+
+  
   // ── Post comment ─────────────────────────────────────────
   const handlePostComment = async () => {
     if (!commentText.trim()) return;
+    const isGuest = await AsyncStorage.getItem("isGuest");
+    if (isGuest === "true") {
+      toast.error("Please log in to comment");
+      return;
+    }
+
     setPostingComment(true);
-    // TODO (Backend): POST /place/comment { placeId: id, text: commentText }
-    await new Promise((r) => setTimeout(r, 500));
-    setComments((prev) => [
-      {
-        _id: `c_${Date.now()}`,
-        userId: { firstname: "You", lastname: "", profile_picture: "https://cdn-icons-png.flaticon.com/512/149/149071.png" },
-        text: commentText.trim(),
-        createdAt: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
-    setCommentText("");
-    setPostingComment(false);
-    setPlace((p) => ({ ...p, totalComments: (p.totalComments || 0) + 1 }));
+    try {
+      const res = await api.post("/place/comment", { placeId: id, text: commentText.trim() });
+      if (res.data?.success) {
+        setComments((prev) => [res.data.data, ...prev]);
+        setCommentText("");
+        setPlace((p) => ({ ...p, totalComments: (p.totalComments || 0) + 1 }));
+      }
+    } catch (err) {
+      console.error("Error posting comment:", err?.response?.data || err?.message);
+      toast.error("Failed to post comment");
+    } finally {
+      setPostingComment(false);
+    }
   };
+
 
   // ── Open Maps ────────────────────────────────────────────
   const openMaps = () => {

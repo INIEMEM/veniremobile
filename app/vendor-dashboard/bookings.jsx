@@ -40,8 +40,10 @@ export default function VendorBookings() {
   const fetchBookings = useCallback(async (status) => {
     try {
       const res = await api.get(`/vendor/orders?status=${status}&page=1&limit=50`);
+     
       if (res.data?.success && res.data?.data) {
         setBookings(res.data.data);
+        //  console.log("Vendor bookings", res.data.data);
       } else {
         setBookings([]);
       }

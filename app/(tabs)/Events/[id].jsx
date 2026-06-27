@@ -14,6 +14,8 @@ import {
   Dimensions,
   Platform,
   TextInput,
+  Linking,
+  KeyboardAvoidingView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -32,6 +34,18 @@ const EVENT_STATUSES = [
   { value: "draft", label: "Draft", color: "#9E9E9E", icon: "document-text-outline" },
   { value: "cancelled", label: "Cancelled", color: "#ff4444", icon: "close-circle-outline" },
 ];
+
+const renderStars = (rating) => {
+  const stars = [];
+  for (let i = 1; i <= 5; i++) {
+    stars.push(
+      <Text key={i} style={{ color: i <= Math.round(rating) ? "#FAB843" : "#DDD", fontSize: 18 }}>
+        ★
+      </Text>
+    );
+  }
+  return stars;
+};
 
 export default function EventDetailsScreen() {
   const { id, isDraft } = useLocalSearchParams();
@@ -60,6 +74,15 @@ export default function EventDetailsScreen() {
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [ticketQuantities, setTicketQuantities] = useState({});
   const [purchasingTickets, setPurchasingTickets] = useState(false);
+
+  // Carousel & Video
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [playingKey, setPlayingKey] = useState(null);
+  const [fullScreen, setFullScreen] = useState(null);
+  const [showAllDesc, setShowAllDesc] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const videoRefs = useRef({});
+  const fsVideoRef = useRef(null);
   
   // Hired Vendors
   const [hiredVendors, setHiredVendors] = useState([]);
@@ -481,7 +504,7 @@ export default function EventDetailsScreen() {
       await api.post(
         "/event/review-rate",
         {
-          eventId: event._id,
+          eventId: event?._id || id,
           review: reviewText.trim(),
           rate: rating,
           rating: rating,
@@ -494,11 +517,11 @@ export default function EventDetailsScreen() {
       setRating(0);
       setReviewText("");
     } catch (error) {
-      console.error("Error submitting review:", error);
+      console.error("Error submitting review:", error?.response?.data || error?.message);
       Toast.show({
         type: "error",
         text1: "Failed to submit review",
-        text2: error.response?.data?.message || "Please try again",
+        text2: error?.response?.data?.message || error?.response?.data?.error || "Server error occurred",
       });
     } finally {
       setIsSubmittingReview(false);
@@ -532,21 +555,68 @@ export default function EventDetailsScreen() {
   };
 
   const getEventMedia = (event) => {
+    const allMedia = [];
     if (event.videos && event.videos.length > 0) {
-      return { type: 'video', uri: event.videos[0] };
+      event.videos.forEach(uri => allMedia.push({ type: "video", uri }));
     }
     if (event.images && event.images.length > 0) {
-      return { type: 'image', uri: event.images[0] };
+      event.images.forEach(uri => allMedia.push({ type: "image", uri }));
     }
-    return { 
-      type: 'image', 
-      uri: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800" 
-    };
+    if (allMedia.length === 0) {
+      allMedia.push({
+        type: "image",
+        uri: "https://images.pexels.com/photos/2747449/pexels-photo-2747449.jpeg?auto=compress&cs=tinysrgb&w=800"
+      });
+    }
+    return allMedia;
+  };
+
+  const pauseAll = async () => {
+    await Promise.all(
+      Object.values(videoRefs.current).map(async (r) => {
+        try { if (r) await r.pauseAsync(); } catch (_) {}
+      })
+    );
+    setPlayingKey(null);
+  };
+
+  const openFullScreen = async (idx) => {
+    await pauseAll();
+    setFullScreen(idx);
+  };
+
+  const closeFullScreen = async () => {
+    try { if (fsVideoRef.current) await fsVideoRef.current.pauseAsync(); } catch (_) {}
+    setFullScreen(null);
   };
 
   const getCurrentStatusInfo = () => {
     const currentStatus = event?.userStatus || 'draft';
     return EVENT_STATUSES.find(s => s.value === currentStatus) || EVENT_STATUSES[3];
+  };
+
+  const openMaps = () => {
+    if (event.lat && event.long) {
+      Linking.openURL(`https://www.google.com/maps?q=${event.lat},${event.long}`);
+    } else {
+      const address = event.address || "";
+      Linking.openURL(`https://www.google.com/maps/search/${encodeURIComponent(event.name + " " + address)}`);
+    }
+  };
+
+  const formatCount = (n) => {
+    if (!n) return "0";
+    if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+    return String(n);
+  };
+
+  const timeAgo = (iso) => {
+    if (!iso) return "";
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 3600)   return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400)  return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   };
 
   if (loading) {
@@ -588,317 +658,399 @@ export default function EventDetailsScreen() {
   const isOwner = currentUserId && (event.userId?._id === currentUserId || event.userId === currentUserId);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    <View style={styles.container}>
+      {/* Back button — floats above media */}
+      <TouchableOpacity
+        style={styles.backBtn}
+        onPress={() => { pauseAll(); router.back(); }}
       >
-        {/* Full Screen Image Header */}
-        <TouchableOpacity 
-          style={{ width: width, height: height * 0.45, position: 'relative' }}
-          onPress={media.type === 'image' ? handleImagePress : null}
-          activeOpacity={0.9}
+        <Ionicons name="chevron-back" size={22} color="#FFF" />
+      </TouchableOpacity>
+
+      {/* Status Badge - floating top right */}
+      <View style={[styles.floatingStatusBadge, { backgroundColor: statusInfo.color }]}>
+        <Ionicons name={statusInfo.icon} size={12} color="#fff" />
+        <Text style={styles.floatingStatusText}>{statusInfo.label.toUpperCase()}</Text>
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
-          {media.type === 'video' ? (
-            <Video source={{ uri: media.uri }} style={{ width: '100%', height: '100%' }} useNativeControls resizeMode="cover" />
-          ) : (
-            <Image source={{ uri: media.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-          )}
-          {/* Top Overlays */}
-          <View style={{ position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <TouchableOpacity onPress={() => router.back()} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-              <Ionicons name="arrow-back" size={24} color="#fff" />
-            </TouchableOpacity>
-            <View style={{ backgroundColor: statusInfo.color, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name={statusInfo.icon} size={14} color="#fff" />
-              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 12, color: '#fff' }}>{statusInfo.label.toUpperCase()}</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Content overlapping the image */}
-        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, marginTop: -32, padding: 24 }}>
-          
-          {/* Title & Options */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-            <Text style={{ flex: 1, fontFamily: 'Poppins_700Bold', fontSize: 26, color: '#1A1A1A', lineHeight: 34 }}>{event.name || "Event Details"}</Text>
-            {isOwner && (
-              <TouchableOpacity onPress={() => setShowOptionsMenu(true)} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', marginLeft: 12 }}>
-                <Ionicons name="ellipsis-vertical" size={20} color="#5A31F4" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Organizer Info */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F4FF', padding: 12, borderRadius: 16, marginBottom: 24 }}>
-            <Image source={{ uri: organizerImage }} style={{ width: 44, height: 44, borderRadius: 22, marginRight: 12, borderWidth: 2, borderColor: '#fff' }} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#1A1A1A' }}>
-                {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
-              </Text>
-              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 13, color: '#6B7280' }}>
-                {event?.isOrganizer && 'Organizer'} {event?.isHost && '• Host'} {!event?.isOrganizer && !event?.isHost && 'Publisher'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Quick Info Grid */}
-          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
-            <View style={{ flex: 1, backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, borderLeftWidth: 3, borderLeftColor: '#5A31F4' }}>
-              <Ionicons name="calendar" size={24} color="#5A31F4" style={{ marginBottom: 8 }} />
-              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 14, color: '#1A1A1A' }}>{formatDate(event.start)}</Text>
-              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>{formatTime(event.start)}</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, borderLeftWidth: 3, borderLeftColor: '#FAB843' }}>
-              <Ionicons name="people" size={24} color="#FAB843" style={{ marginBottom: 8 }} />
-              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 14, color: '#1A1A1A' }}>{event.capacity} Max</Text>
-              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>Capacity</Text>
-            </View>
-          </View>
-
-          {event.end && (
-            <View style={{ backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, marginBottom: 24, borderLeftWidth: 3, borderLeftColor: '#FF3B30' }}>
-              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 14, color: '#1A1A1A' }}>Ends {formatDate(event.end)}</Text>
-              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>{formatTime(event.end)}</Text>
-            </View>
-          )}
-
-          {/* Location */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, marginBottom: 24 }}>
-            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#E8DBFF', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
-              <Ionicons name="location" size={24} color="#5A31F4" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#1A1A1A', marginBottom: 2 }}>{event.address}</Text>
-              <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#6B7280' }}>Lat: {event.lat}°, Long: {event.long}°</Text>
-            </View>
-          </View>
-
-          {/* Description */}
-          <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: 18, color: '#1A1A1A', marginBottom: 12 }}>About Event</Text>
-          <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 15, color: '#4B5563', lineHeight: 24, marginBottom: 32 }}>{event.description}</Text>
-
-          {isOwner && (
-            <View style={styles.vendorSection}>
-              <View style={styles.vendorSectionHeader}>
-                <Text style={styles.smalltitle}>Hired Vendors</Text>
-                {hiredVendors.length > 0 && (
-                  <Text style={styles.vendorCount}>{hiredVendors.length} hired</Text>
-                )}
-              </View>
-
-              {hiredVendors.length > 0 ? (
-                hiredVendors.map((req, index) => {
-                  // The API returns: req.vendor.firstname, req.vendor.businessName,
-                  // req.vendor.profile_picture, req.message, req.amount, req._id
-                  const name = req.vendor?.firstname
-                    ? `${req.vendor.firstname} ${req.vendor.lastname || ''}`.trim()
-                    : req.vendor?.businessName || 'Vendor';
-                  const category = req.vendor?.category || req.vendor?.serviceType || req.vendor?.role || 'Service Provider';
-                  const photo = req.vendor?.profile_picture || req.vendor?.userId?.profile_picture;
-                  const message = req.message || req.note || '';
-                  const amount = req.amount || 0;
-                  const status = req.status || 'pending';
-                  const STATUS_CONFIG = {
-                    accepted:  { bg: '#EFF6FF', text: '#3B82F6', label: 'Accepted' },
-                    pending:   { bg: '#FEF3C7', text: '#F59E0B', label: 'Awaiting Vendor' },
-                    rejected:  { bg: '#FEF2F2', text: '#EF4444', label: 'Rejected' },
-                    completed: { bg: '#ECFDF5', text: '#10B981', label: 'Completed ✓' },
-                    process:   { bg: '#F3EDFF', text: '#8B5CF6', label: 'In Progress' },
-                    delivered: { bg: '#ECFDF5', text: '#10B981', label: 'Delivered' },
-                  };
-                  const sc = STATUS_CONFIG[status] || { bg: '#F3F4F6', text: '#6B7280', label: status };
-
-                  return (
-                    <TouchableOpacity
-                      key={req._id || index}
-                      style={styles.vendorCard}
-                      onPress={() => router.push({
-                        pathname: `/orders/${req._id}`,
-                        params: { orderData: JSON.stringify(req) }
-                      })}
-                      activeOpacity={0.85}
-                    >
-                      <View style={styles.vendorCardLeft}>
-                        {photo ? (
-                          <Image source={{ uri: photo }} style={styles.vendorAvatar} />
-                        ) : (
-                          <View style={[styles.vendorAvatar, styles.vendorAvatarFallback]}>
-                            <Text style={styles.vendorAvatarLetter}>{name.charAt(0).toUpperCase()}</Text>
-                          </View>
-                        )}
-                        <View style={styles.vendorCardInfo}>
-                          <Text style={styles.vendorCardName} numberOfLines={1}>{name}</Text>
-                          {message ? (
-                            <Text style={styles.vendorCardCategory} numberOfLines={1}>"{message}"</Text>
-                          ) : (
-                            <Text style={styles.vendorCardCategory} numberOfLines={1}>
-                              {amount > 0 ? `₦${amount.toLocaleString()}` : category}
-                            </Text>
+          {/* ── MEDIA CAROUSEL ───────────────────────────── */}
+          <View style={styles.mediaContainer}>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onMomentumScrollEnd={(e) =>
+                setActiveIdx(Math.round(e.nativeEvent.contentOffset.x / width))
+              }
+            >
+              {media.map((item, idx) => {
+                const vKey = `detail-${event._id}-${idx}`;
+                const isPlaying = playingKey === vKey;
+                return (
+                  <View key={idx} style={styles.mediaSlide}>
+                    {item.type === "video" ? (
+                      <>
+                        <Video
+                          ref={(r) => { videoRefs.current[vKey] = r; }}
+                          source={{ uri: item.uri }}
+                          style={styles.media}
+                          resizeMode="cover"
+                          shouldPlay={false}
+                          isLooping={false}
+                          isMuted={false}
+                          onPlaybackStatusUpdate={(s) => {
+                            if (s.didJustFinish) setPlayingKey(null);
+                          }}
+                        />
+                        <TouchableOpacity
+                          style={styles.videoOverlay}
+                          activeOpacity={0.85}
+                          onPress={async () => {
+                            const ref = videoRefs.current[vKey];
+                            if (!ref) return;
+                            if (isPlaying) { await ref.pauseAsync(); setPlayingKey(null); }
+                            else { await pauseAll(); await ref.playAsync(); setPlayingKey(vKey); }
+                          }}
+                          onLongPress={() => openFullScreen(idx)}
+                        >
+                          {!isPlaying && (
+                            <View style={styles.playWrap}>
+                              <Ionicons name="play" size={36} color="#FFF" />
+                            </View>
                           )}
+                          <TouchableOpacity style={styles.expandBtn} onPress={() => openFullScreen(idx)}>
+                            <Ionicons name="expand-outline" size={16} color="#FFF" />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <TouchableOpacity style={{ flex: 1 }} onPress={() => openFullScreen(idx)} activeOpacity={0.95}>
+                        <Image source={{ uri: item.uri }} style={styles.media} resizeMode="cover" />
+                        <View style={styles.expandBtn} pointerEvents="none">
+                          <Ionicons name="expand-outline" size={16} color="#FFF" />
                         </View>
+                      </TouchableOpacity>
+                    )}
+                    {media.length > 1 && (
+                      <View style={styles.mediaCounter}>
+                        <Text style={styles.mediaCounterText}>{idx + 1} / {media.length}</Text>
                       </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-                          <Text style={[styles.statusBadgeText, { color: sc.text }]}>{sc.label}</Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={16} color="#CCC" />
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
-              ) : (
-                <Text style={styles.vendorEmptyText}>No vendors hired yet</Text>
-              )}
-
-              {/* Hire a Vendor CTA */}
-              <TouchableOpacity
-                style={styles.hireVendorCta}
-                onPress={() => router.push(`/(tabs)/Vendor/marketplace?eventId=${event._id}`)}
-                activeOpacity={0.85}
-              >
-                <View style={styles.hireVendorCtaLeft}>
-                  <View style={styles.hireVendorIcon}>
-                    <Ionicons name="storefront" size={22} color="#5A31F4" />
+                    )}
                   </View>
-                  <View>
-                    <Text style={styles.hireVendorTitle}>Hire a Vendor</Text>
-                    <Text style={styles.hireVendorSubtitle}>Browse photographers, caterers & more</Text>
-                  </View>
-                </View>
-                <Ionicons name="arrow-forward-circle" size={28} color="#5A31F4" />
-              </TouchableOpacity>
-            </View>
-          )}
+                );
+              })}
+            </ScrollView>
 
-          <View style={styles.priceRow}>
-            {!isDraft && !isOwner && (
-              <TouchableOpacity
-                style={styles.interestedBtn}
-                onPress={handleInterested}
-              >
-                <Text style={styles.interestedText}>Interested</Text>
-              </TouchableOpacity>
+            {/* Dot indicators */}
+            {media.length > 1 && (
+              <View style={styles.dots}>
+                {media.map((_, i) => (
+                  <View key={i} style={[styles.dot, i === activeIdx && styles.dotActive]} />
+                ))}
+              </View>
             )}
-            <Text style={styles.price}>
-              {event.isTicket ? `₦${event.ticketAmount}` : "Free"}
-            </Text>
           </View>
 
+          {/* ── ACTION BAR ─────────────────────────────── */}
           {!isDraft && (
-            <View style={styles.statsRow}>
-              <TouchableOpacity onPress={handleLike}>
-                <Animated.View
-                  style={{
-                    transform: [
-                      {
-                        scale:
-                          animations[event._id] || new Animated.Value(1),
-                      },
-                    ],
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
+            <View style={styles.actionBar}>
+              <TouchableOpacity style={styles.actionBtn} onPress={handleLike}>
+                <Animated.View style={{ transform: [{ scale: animations[event._id] || new Animated.Value(1) }] }}>
                   <Ionicons
                     name={event.hasLiked ? "heart" : "heart-outline"}
                     size={24}
-                    color={event.hasLiked ? "red" : "#555"}
+                    color={event.hasLiked ? "#FF3B30" : "#1A1A1A"}
                   />
-                  <Text style={styles.likesText}>
-                    {event.likes?.length || 0}
-                  </Text>
                 </Animated.View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.statItem}
-                onPress={() => setShowComments(true)}
-              >
-                <Ionicons name="chatbubble-outline" size={20} color="#555" />
-                <Text style={styles.statText}>
-                  {event.comments?.length || 0}
+                <Text style={[styles.actionCount, event.hasLiked && { color: "#FF3B30" }]}>
+                  {formatCount(event.likes?.length || event.totalLikes)}
                 </Text>
               </TouchableOpacity>
 
-              <View style={styles.statItem}>
-                <Ionicons name="eye-outline" size={20} color="#555" />
-                <Text style={styles.statText}>
-                  {event.hasViewed ? "✓" : ""}
-                </Text>
+              <View style={styles.actionBtn}>
+                <Ionicons name="chatbubble-outline" size={24} color="#1A1A1A" />
+                <Text style={styles.actionCount}>{formatCount(event.comments?.length || event.totalComments)}</Text>
               </View>
 
-              <TouchableOpacity onPress={handleBookmark}>
-                <Ionicons
-                  name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
-                  size={20}
-                  color={event.hasBookmarked ? "#5A31F4" : "#555"}
-                />
+              <TouchableOpacity style={styles.actionBtn}>
+                <Ionicons name="share-social-outline" size={24} color="#1A1A1A" />
               </TouchableOpacity>
 
-              <TouchableOpacity>
-                <Ionicons name="share-social-outline" size={20} color="#555" />
+              <View style={{ flex: 1 }} />
+
+              <TouchableOpacity style={styles.actionBtn} onPress={handleBookmark}>
+                <Ionicons
+                  name={event.hasBookmarked ? "bookmark" : "bookmark-outline"}
+                  size={24}
+                  color={event.hasBookmarked ? "#5A31F4" : "#1A1A1A"}
+                />
               </TouchableOpacity>
             </View>
           )}
-        </View>
 
-        {!isDraft && (
-          <View style={{flexDirection: 'row', justifyContent: 'center', gap: 15, marginBottom: 20}}>
-            <TouchableOpacity
-              style={styles.viewCommentsBtn}
-              onPress={() => setShowComments(!showComments)}
+          {/* Likes count */}
+          {!isDraft && (event.likes?.length > 0 || event.totalLikes > 0) && (
+            <View style={styles.likesRow}>
+              <Text style={styles.likesText}>{formatCount(event.likes?.length || event.totalLikes)} likes</Text>
+            </View>
+          )}
+
+          {/* ── EVENT INFO ──────────────────────────────── */}
+          <View style={styles.infoSection}>
+
+            {/* Name + Options */}
+            <View style={styles.nameRow}>
+              <Text style={styles.placeName}>{event.name || "Event Details"}</Text>
+              {isOwner && (
+                <TouchableOpacity onPress={() => setShowOptionsMenu(true)} style={styles.optionsIcon}>
+                  <Ionicons name="ellipsis-horizontal" size={20} color="#1A1A1A" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Rating + Price + Location */}
+            <View style={styles.metaRow}>
+              <View style={styles.starsRow}>{renderStars(event.rating || event.averageRating || 0)}</View>
+              <Text style={styles.ratingNum}>{(event.rating || event.averageRating || 0).toFixed(1)}</Text>
+              <View style={styles.metaDot} />
+              <Text style={styles.priceRange}>{event.isTicket ? `₦${event.ticketAmount}` : "Free"}</Text>
+              <View style={styles.metaDot} />
+              <Ionicons name="calendar-outline" size={13} color="#5A31F4" />
+              <Text style={styles.cityText}>{formatDate(event.start)}</Text>
+            </View>
+
+            {/* Address */}
+            {event.address && (
+              <View style={styles.addressRow}>
+                <Ionicons name="map-outline" size={14} color="#5A31F4" />
+                <Text style={styles.addressText}>{event.address}</Text>
+              </View>
+            )}
+
+            {/* Open in Maps CTA */}
+            {event.address && (
+              <TouchableOpacity style={styles.mapsBtn} onPress={openMaps} activeOpacity={0.85}>
+                <Ionicons name="navigate" size={16} color="#FFF" />
+                <Text style={styles.mapsBtnText}>Open in Google Maps</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Description */}
+            <Text style={styles.sectionTitle}>About this event</Text>
+            <Text
+              style={styles.description}
+              numberOfLines={showAllDesc ? undefined : 4}
             >
-              <Text style={styles.viewCommentsText}>
-                {showComments ? "Hide Comments" : "View Comments"}
-              </Text>
-              <Ionicons
-                name={showComments ? "chevron-up" : "chevron-down"}
-                size={20}
-                color="#5A31F4"
+              {event.description}
+            </Text>
+            {event.description?.length > 180 && (
+              <TouchableOpacity onPress={() => setShowAllDesc((p) => !p)}>
+                <Text style={styles.readMore}>
+                  {showAllDesc ? "Show less" : "Read more"}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Tags */}
+            {(event.category || event.tags?.length > 0) && (
+              <View style={styles.tagsRow}>
+                {event.category && (
+                  <View style={styles.tag}>
+                    <Text style={styles.tagText}>#{String(event.category).toLowerCase().replace(/\s+/g, "")}</Text>
+                  </View>
+                )}
+                {event.tags?.map((tag) => (
+                  <View key={tag} style={styles.tag}>
+                    <Text style={styles.tagText}>#{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Posted by */}
+            <View style={styles.postedByRow}>
+              <Image
+                source={{ uri: organizerImage }}
+                style={styles.postedAvatar}
               />
-            </TouchableOpacity>
+              <View>
+                <Text style={styles.postedByLabel}>
+                  {event?.isOrganizer ? 'Organizer' : (event?.isHost ? 'Host' : 'Posted by')}
+                </Text>
+                <Text style={styles.postedByName}>
+                  {event.userId?.firstname || "Unknown"} {event.userId?.lastname || ""}
+                </Text>
+              </View>
+              <Text style={styles.postedTime}>{timeAgo(event.createdAt || event.start)}</Text>
+            </View>
 
-            <TouchableOpacity
-              style={styles.viewCommentsBtn}
-              onPress={() => setShowReviewModal(true)}
-            >
-              <Text style={styles.viewCommentsText}>Rate Event</Text>
-              <Ionicons name="star-outline" size={20} color="#5A31F4" />
-            </TouchableOpacity>
+            {/* Hired Vendors */}
+            {isOwner && (
+              <View style={styles.vendorSection}>
+                <View style={styles.vendorSectionHeader}>
+                  <Text style={styles.sectionTitle}>Hired Vendors</Text>
+                  {hiredVendors.length > 0 && (
+                    <Text style={styles.vendorCount}>{hiredVendors.length} hired</Text>
+                  )}
+                </View>
+
+                {hiredVendors.length > 0 ? (
+                  hiredVendors.map((req, index) => {
+                    const name = req.vendor?.firstname
+                      ? `${req.vendor.firstname} ${req.vendor.lastname || ''}`.trim()
+                      : req.vendor?.businessName || 'Vendor';
+                    const category = req.vendor?.category || req.vendor?.serviceType || req.vendor?.role || 'Service Provider';
+                    const photo = req.vendor?.profile_picture || req.vendor?.userId?.profile_picture;
+                    const message = req.message || req.note || '';
+                    const amount = req.amount || 0;
+                    const status = req.status || 'pending';
+                    const STATUS_CONFIG = {
+                      accepted:  { bg: '#EFF6FF', text: '#3B82F6', label: 'Accepted' },
+                      pending:   { bg: '#FEF3C7', text: '#F59E0B', label: 'Awaiting' },
+                      rejected:  { bg: '#FEF2F2', text: '#EF4444', label: 'Rejected' },
+                      completed: { bg: '#ECFDF5', text: '#10B981', label: 'Done' },
+                      process:   { bg: '#F3EDFF', text: '#8B5CF6', label: 'Working' },
+                      delivered: { bg: '#ECFDF5', text: '#10B981', label: 'Delivered' },
+                    };
+                    const sc = STATUS_CONFIG[status] || { bg: '#F3F4F6', text: '#6B7280', label: status };
+
+                    return (
+                      <TouchableOpacity
+                        key={req._id || index}
+                        style={styles.vendorCard}
+                        onPress={() => router.push({ pathname: `/orders/${req._id}`, params: { orderData: JSON.stringify(req) } })}
+                        activeOpacity={0.85}
+                      >
+                        <View style={styles.vendorCardLeft}>
+                          {photo ? (
+                            <Image source={{ uri: photo }} style={styles.vendorAvatar} />
+                          ) : (
+                            <View style={[styles.vendorAvatar, styles.vendorAvatarFallback]}>
+                              <Text style={styles.vendorAvatarLetter}>{name.charAt(0).toUpperCase()}</Text>
+                            </View>
+                          )}
+                          <View style={styles.vendorCardInfo}>
+                            <Text style={styles.vendorCardName} numberOfLines={1}>{name}</Text>
+                            <Text style={styles.vendorCardCategory} numberOfLines={1}>
+                              {amount > 0 ? `₦${amount.toLocaleString()}` : category}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={[styles.vendorBadge, { backgroundColor: sc.bg }]}>
+                          <Text style={[styles.vendorBadgeText, { color: sc.text }]}>{sc.label}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.description}>No vendors hired yet.</Text>
+                )}
+
+                {/* Hire a Vendor CTA */}
+                <TouchableOpacity
+                  style={styles.hireVendorCta}
+                  onPress={() => router.push(`/(tabs)/Vendor/marketplace?eventId=${event._id}`)}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.hireVendorCtaLeft}>
+                    <View style={styles.hireVendorIcon}>
+                      <Ionicons name="storefront" size={20} color="#5A31F4" />
+                    </View>
+                    <View>
+                      <Text style={styles.hireVendorTitle}>Hire a Vendor</Text>
+                      <Text style={styles.hireVendorSubtitle}>Browse caterers, DJs & more</Text>
+                    </View>
+                  </View>
+                  <Ionicons name="arrow-forward-circle" size={24} color="#5A31F4" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* CTAs (Rate & Tickets) */}
+            {!isDraft && (
+              <View style={styles.bottomCtaRow}>
+                <TouchableOpacity style={styles.rateBtn} onPress={() => setShowReviewModal(true)}>
+                  <Ionicons name="star-outline" size={18} color="#5A31F4" />
+                  <Text style={styles.rateBtnText}>Rate Event</Text>
+                </TouchableOpacity>
+
+                {!isOwner && (
+                  <TouchableOpacity style={styles.interestedBtn} onPress={handleInterested}>
+                    <Text style={styles.interestedText}>
+                      {event.isTicket ? "Buy Tickets" : "Interested"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
-        )}
-      </ScrollView>
 
-      {/* Full Screen Image Viewer Modal */}
+          {/* ── COMMENTS ────────────────────────────────── */}
+          {!isDraft && (
+            <View style={styles.commentsSection}>
+              <Text style={styles.sectionTitle}>
+                Comments ({formatCount(event.comments?.length || event.totalComments)})
+              </Text>
+              
+              <View style={{ marginTop: 10 }}>
+                <CommentsSection eventId={event._id} />
+              </View>
+
+              <View style={{ height: 40 }} />
+            </View>
+          )}
+
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* ── FULLSCREEN MODAL ────────────────────────────── */}
       <Modal
-        visible={showImageViewer}
-        transparent={true}
+        visible={fullScreen !== null}
+        transparent
         animationType="fade"
-        onRequestClose={handleCloseImageViewer}
+        onRequestClose={closeFullScreen}
       >
-        <View style={styles.imageViewerContainer}>
-          <TouchableOpacity
-            style={styles.closeImageButton}
-            onPress={handleCloseImageViewer}
-          >
-            <Ionicons name="close-circle" size={40} color="#fff" />
+        <View style={styles.fsContainer}>
+          <TouchableOpacity style={styles.fsCloseBtn} onPress={closeFullScreen}>
+            <Ionicons name="close" size={28} color="#FFF" />
           </TouchableOpacity>
-          
-          <Animated.View style={{ transform: [{ scale: imageScale }] }}>
-            <Image
-              source={{ uri: media.uri }}
-              style={styles.fullScreenImage}
-              resizeMode="contain"
-            />
-          </Animated.View>
-
-          <View style={styles.imageViewerInfo}>
-            <Text style={styles.imageViewerText}>{event.name}</Text>
-            <Text style={styles.imageViewerSubtext}>Tap anywhere to close</Text>
-          </View>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: (fullScreen || 0) * width, y: 0 }}
+          >
+            {media.map((item, idx) => (
+              <View key={idx} style={styles.fsSlide}>
+                {item.type === "video" ? (
+                  <Video
+                    ref={idx === fullScreen ? fsVideoRef : null}
+                    source={{ uri: item.uri }}
+                    style={styles.fsMedia}
+                    useNativeControls
+                    resizeMode="contain"
+                    shouldPlay={idx === fullScreen}
+                    isLooping={false}
+                    isMuted={false}
+                    volume={1.0}
+                  />
+                ) : (
+                  <Image source={{ uri: item.uri }} style={styles.fsMedia} resizeMode="contain" />
+                )}
+              </View>
+            ))}
+          </ScrollView>
         </View>
       </Modal>
 
@@ -1196,423 +1348,175 @@ export default function EventDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    paddingVertical: 50,
-    paddingHorizontal: 16,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  loadingText: {
-    marginTop: 10,
-    fontFamily: "Poppins_400Regular",
-    color: "#666",
-  },
-  emptyText: {
-    marginTop: 10,
-    fontFamily: "Poppins_400Regular",
-    color: "#999",
-    fontSize: 16,
-  },
-  backButton: {
-    marginTop: 20,
-    backgroundColor: "#5A31F4",
-    paddingHorizontal: 30,
-  },
-  headerImage: {
-    width: "100%",
-    height: height * 0.4,
-  },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    marginBottom: 12,
-    gap: 6,
-  },
-  statusBadgeText: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
-  },
+  container: { flex: 1, backgroundColor: "#FFF" },
   backBtn: {
     position: "absolute",
-    top: 50,
-    left: 20,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 10,
+    top: Platform.OS === "ios" ? 54 : 42,
+    left: 16,
+    zIndex: 100,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center", alignItems: "center",
   },
-  eventDetails: {
-    padding: 20,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: "#fff",
-    marginTop: -30,
-  },
-  title: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 22,
-    color: "#333",
-    marginTop: 20,
-    marginHorizontal: 20,
-  },
-  mediaContainer: {
-    width: "100%",
-    height: height * 0.45,
-    borderRadius: 16,
-    marginBottom: 15,
-    overflow: 'hidden',
-    backgroundColor: '#f0f0f0',
-    position: 'relative',
-  },
-  eventMedia: {
-    width: "100%",
-    height: "100%",
-  },
-  expandIconContainer: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 8,
-    borderRadius: 20,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  infoRow2: {
-    flexDirection: 'row',
-    gap: 15,
-    marginVertical: 15,
-  },
-  mapBox: {
-    backgroundColor: '#F3EDFF',
-    padding: 15,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapText: {
-    fontFamily: 'Poppins_500Medium',
-    color: '#333',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  dateTime: {
-    fontFamily: 'Poppins_500Medium',
-    color: '#5A31F4',
-    fontSize: 14,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 20,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  interestedBtn: {
-    backgroundColor: '#5A31F4',
-    paddingHorizontal: 30,
-    paddingVertical: 15,
-    borderRadius: 30,
-  },
-  interestedText: {
-    color: '#fff',
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 16,
-  },
-  price: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 24,
-    color: '#333',
-  },
-  smalltitle: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 18,
-    color: "#333",
-    marginBottom: 10,
-  },
-  desc: {
-    fontFamily: "Poppins_400Regular",
-    color: "#555",
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  avatarContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 15,
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  organizerName: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-    marginVertical: 15,
-    paddingHorizontal: 20,
-  },
-  statItem: {
+  floatingStatusBadge: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : 42,
+    right: 16,
+    zIndex: 100,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-  },
-  statText: {
-    fontFamily: "Poppins_500Medium",
-    color: "#555",
-    fontSize: 14,
-  },
-  likesText: {
-    fontFamily: "Poppins_500Medium",
-    color: "#555",
-    fontSize: 14,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  emptyText: {
-    fontFamily: "Poppins_500Medium",
-    fontSize: 18,
-    color: "#888",
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  backButton: {
-    backgroundColor: "#5A31F4",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  backButtonText: {
-    color: "#FFF",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 16,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontFamily: "Poppins_400Regular",
-    color: "#6B7280",
-  },
-  replyAvatar: {
-    width: 40,
-    height: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
-    backgroundColor: "#F3F4F6",
-  },
-  caption: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 13,
-    color: "#888",
-    marginBottom: 20,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 15,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  modalTitle: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 20,
-    color: "#333",
-  },
-  modalOverlay: {
-    flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
   },
-  optionsMenu: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: 40,
-  },
-  optionsTitle: {
+  floatingStatusText: {
     fontFamily: "Poppins_600SemiBold",
-    fontSize: 18,
-    color: "#333",
-    marginBottom: 20,
-    textAlign: "center",
+    fontSize: 11,
+    color: "#fff",
   },
-  optionItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: "#F9FAFB",
-    marginBottom: 12,
+  mediaContainer: {
+    width, height: height * 0.52,
+    backgroundColor: "#000",
   },
-  optionText: {
-    fontFamily: "Poppins_500Medium",
-    fontSize: 16,
-    color: "#333",
-    marginLeft: 12,
+  mediaSlide: {
+    width, height: height * 0.52,
+    position: "relative",
   },
-  deleteOption: {
-    backgroundColor: "#FEF2F2",
+  media: { width: "100%", height: "100%", objectFit: "cover" },
+  videoOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: "center", alignItems: "center",
   },
-  deleteText: {
-    color: "#ff4444",
+  playWrap: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center", alignItems: "center", paddingLeft: 4,
   },
-  cancelOption: {
-    marginTop: 8,
-    paddingVertical: 16,
-    alignItems: "center",
+  expandBtn: {
+    position: "absolute", top: 12, right: 12,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center", alignItems: "center",
   },
-  cancelText: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 16,
-    color: "#666",
+  mediaCounter: {
+    position: "absolute", bottom: 16, right: 16,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 20,
   },
-  statusOption: {
-    backgroundColor: "#FFF3E0",
+  mediaCounterText: { fontFamily: "Poppins_500Medium", fontSize: 11, color: "#FFF" },
+  dots: {
+    position: "absolute", bottom: 14, left: 0, right: 0,
+    flexDirection: "row", justifyContent: "center", gap: 5,
   },
-  statusText: {
-    color: "#FF9800",
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.4)" },
+  dotActive: { width: 18, backgroundColor: "#FFF" },
+  actionBar: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 8, paddingTop: 12, paddingBottom: 6,
   },
-  statusMenu: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: "80%",
+  actionBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 7, paddingVertical: 6,
   },
-  statusMenuHeader: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+  actionCount: { fontFamily: "Poppins_500Medium", fontSize: 14, color: "#1A1A1A" },
+  likesRow: { paddingHorizontal: 16, paddingBottom: 4 },
+  likesText: { fontFamily: "Poppins_600SemiBold", fontSize: 13, color: "#1A1A1A" },
+  infoSection: {
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4, backgroundColor: "#FFF",
   },
-  statusMenuTitle: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 18,
-    color: "#111827",
-    textAlign: "center",
+  nameRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap",
   },
-  statusMenuSubtitle: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "center",
-    marginTop: 4,
+  placeName: { fontFamily: "Poppins_700Bold", fontSize: 22, color: "#1A1A1A", flex: 1 },
+  optionsIcon: { padding: 4 },
+  metaRow: {
+    flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap",
   },
-  statusList: {
-    padding: 20,
+  starsRow: { flexDirection: "row" },
+  ratingNum: { fontFamily: "Poppins_700Bold", fontSize: 14, color: "#1A1A1A" },
+  metaDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#C4B5FD" },
+  priceRange: { fontFamily: "Poppins_700Bold", fontSize: 14, color: "#FAB843" },
+  cityText: { fontFamily: "Poppins_500Medium", fontSize: 13, color: "#5A31F4" },
+  addressRow: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginBottom: 14 },
+  addressText: { fontFamily: "Poppins_400Regular", fontSize: 13, color: "#555", flex: 1, lineHeight: 20 },
+  mapsBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#5A31F4", paddingHorizontal: 18, paddingVertical: 12,
+    borderRadius: 14, alignSelf: "flex-start", marginBottom: 20,
+    shadowColor: "#5A31F4", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 6,
   },
-  statusItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: "#F9FAFB",
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "transparent",
+  mapsBtnText: { fontFamily: "Poppins_600SemiBold", fontSize: 14, color: "#FFF" },
+  sectionTitle: { fontFamily: "Poppins_700Bold", fontSize: 15, color: "#1A1A1A", marginBottom: 8, marginTop: 4 },
+  description: { fontFamily: "Poppins_400Regular", fontSize: 14, color: "#444", lineHeight: 22 },
+  readMore: { fontFamily: "Poppins_600SemiBold", fontSize: 13, color: "#5A31F4", marginTop: 6 },
+  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14, marginBottom: 4 },
+  tag: { backgroundColor: "#F3EDFF", paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
+  tagText: { fontFamily: "Poppins_400Regular", fontSize: 12, color: "#5A31F4" },
+  postedByRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, marginTop: 20, paddingTop: 16,
+    borderTopWidth: 1, borderTopColor: "#F0F0F0", marginBottom: 4,
   },
-  statusItemActive: {
-    backgroundColor: "#F3F4F6",
-    borderColor: "#E5E7EB",
+  postedAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#ddd", borderWidth: 2, borderColor: "#5A31F4" },
+  postedByLabel: { fontFamily: "Poppins_400Regular", fontSize: 11, color: "#999" },
+  postedByName: { fontFamily: "Poppins_600SemiBold", fontSize: 13, color: "#1A1A1A" },
+  postedTime: { fontFamily: "Poppins_400Regular", fontSize: 11, color: "#999", marginLeft: "auto" },
+  
+  bottomCtaRow: {
+    flexDirection: "row", alignItems: "center", gap: 12, marginTop: 24, paddingBottom: 10,
   },
-  statusItemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    flex: 1,
+  rateBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14,
+    borderWidth: 1.5, borderColor: "#E8DBFF", backgroundColor: "#F3EDFF",
   },
-  statusItemLabel: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 16,
-    color: "#111827",
+  rateBtnText: { fontFamily: "Poppins_600SemiBold", fontSize: 14, color: "#5A31F4" },
+  interestedBtn: {
+    flex: 1, backgroundColor: "#5A31F4", paddingVertical: 14, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+    shadowColor: "#5A31F4", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 6,
   },
-  statusItemDescription: {
-    fontFamily: "Poppins_400Regular",
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-    paddingRight: 16,
+  interestedText: { fontFamily: "Poppins_600SemiBold", fontSize: 15, color: "#FFF" },
+
+  commentsSection: {
+    paddingHorizontal: 16, paddingTop: 16, borderTopWidth: 6, borderTopColor: "#F2F2F2", marginTop: 8,
   },
-  viewCommentsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    marginTop: 10,
-    gap: 8,
+
+  fsContainer: { flex: 1, backgroundColor: "#000", justifyContent: "center" },
+  fsCloseBtn: {
+    position: "absolute", top: Platform.OS === "ios" ? 54 : 30, right: 20, zIndex: 10,
+    padding: 10, backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 25,
   },
-  viewCommentsText: {
-    fontFamily: "Poppins_500Medium",
-    fontSize: 14,
-    color: "#5A31F4",
-  },
-  imageViewerContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  closeImageButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
-    padding: 10,
-  },
-  fullScreenImage: {
-    width: width,
-    height: height * 0.7,
-  },
-  imageViewerInfo: {
-    position: 'absolute',
-    bottom: 40,
-    left: 20,
-    right: 20,
-    alignItems: 'center',
-  },
-  imageViewerText: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 18,
-    color: '#fff',
-    textAlign: 'center',
-  },
-  imageViewerSubtext: {
-    color: "#ccc",
-    fontSize: 14,
-    fontFamily: "Poppins_400Regular",
-    textAlign: "center",
-  },
+  fsSlide: { width, height: "100%", justifyContent: "center", alignItems: "center" },
+  fsMedia: { width: "100%", height: "100%" },
+
+  centerContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
+  loadingText: { marginTop: 10, fontFamily: "Poppins_400Regular", color: "#666" },
+
+  // --- Modals below ---
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  optionsMenu: { backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 },
+  optionsTitle: { fontFamily: "Poppins_600SemiBold", fontSize: 18, color: "#333", marginBottom: 20, textAlign: "center" },
+  optionItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16, paddingHorizontal: 20, borderRadius: 12, backgroundColor: "#F9FAFB", marginBottom: 12 },
+  optionText: { fontFamily: "Poppins_500Medium", fontSize: 16, color: "#333", marginLeft: 12 },
+  deleteOption: { backgroundColor: "#FEF2F2" },
+  deleteText: { color: "#ff4444" },
+  cancelOption: { marginTop: 8, paddingVertical: 16, alignItems: "center" },
+  cancelText: { fontFamily: "Poppins_600SemiBold", fontSize: 16, color: "#666" },
+  statusOption: { backgroundColor: "#FFF3E0" },
+  statusText: { color: "#FF9800" },
+  statusMenu: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "80%" },
+  statusMenuHeader: { padding: 20, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" },
+  statusMenuTitle: { fontFamily: "Poppins_600SemiBold", fontSize: 18, color: "#111827", textAlign: "center" },
+  statusMenuSubtitle: { fontFamily: "Poppins_400Regular", fontSize: 14, color: "#6B7280", textAlign: "center", marginTop: 4 },
+  statusList: { padding: 20 },
+  statusItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderRadius: 16, backgroundColor: "#F9FAFB", marginBottom: 12, borderWidth: 1, borderColor: "transparent" },
+  statusItemActive: { backgroundColor: "#F3F4F6", borderColor: "#E5E7EB" },
+  statusItemLeft: { flexDirection: "row", alignItems: "center", gap: 16, flex: 1 },
+  statusItemLabel: { fontFamily: "Poppins_600SemiBold", fontSize: 16, color: "#111827" },
+  statusItemDescription: { fontFamily: "Poppins_400Regular", fontSize: 12, color: "#6B7280", marginTop: 2, paddingRight: 16 },
   reviewMenu: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,

@@ -293,23 +293,20 @@ export default function VendorProfilePage() {
       </View>
     );
   }
-
+  console.log('the vendor info', vendor)
   const productsList = vendor.products 
-                  || vendor.pricingTiers 
-                  || vendor.vendor?.products 
-                  || vendorFullRes?.products 
-                  || vendorFullRes?.data?.products 
-                  || [];
+                  
 
   const portfolioImages = vendor.portfolio?.length 
-    ? vendor.portfolio 
-    : productsList
-        .flatMap((p) => {
-          if (Array.isArray(p.pictures)) return p.pictures;
-          if (Array.isArray(p.images)) return p.images;
-          return [p.picture, p.image, p.imageUrl].filter(Boolean);
-        })
-        .filter(Boolean);
+  ? vendor.portfolio 
+  : productsList
+      .flatMap((p) => {
+        if (Array.isArray(p.pictures)) return p.pictures;
+        if (Array.isArray(p.picture)) return p.picture;
+        if (Array.isArray(p.images)) return p.images;
+        return [p.picture, p.image, p.imageUrl].filter((x) => typeof x === "string");
+      })
+      .filter(Boolean);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#F8F6FF" }}>
@@ -321,7 +318,7 @@ export default function VendorProfilePage() {
         {/* ━━━ HERO ━━━ */}
         <View style={styles.heroContainer}>
           <Image
-            source={{ uri: vendor.cover_photo || portfolioImages[0] || "https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?w=600" }}
+            source={{ uri: vendor.coverPhoto || portfolioImages[0] || "https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?w=600" }}
             style={styles.heroBg}
             blurRadius={2}
           />
@@ -351,7 +348,7 @@ export default function VendorProfilePage() {
         {/* ━━━ STATS ROW ━━━ */}
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
-            <Text style={styles.statBoxNum}>{vendor.eventsCompleted}+</Text>
+            <Text style={styles.statBoxNum}>{vendor.completedOrders}+</Text>
             <Text style={styles.statBoxLabel}>Events Done</Text>
           </View>
           <View style={styles.statDivider} />
@@ -361,7 +358,7 @@ export default function VendorProfilePage() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statBoxNum}>{vendor.responseTime}</Text>
+            <Text style={styles.statBoxNum}>{vendor.isActive ? "Active" : "Inactive"}</Text>
             <Text style={styles.statBoxLabel}>Response</Text>
           </View>
           <View style={styles.statDivider} />
@@ -409,10 +406,12 @@ export default function VendorProfilePage() {
               productsList.map((prod, i) => {
                 // Collect all pictures from this product
                 const pics = Array.isArray(prod.pictures) && prod.pictures.length > 0
-                  ? prod.pictures
+                ? prod.pictures
+                : Array.isArray(prod.picture) && prod.picture.length > 0
+                  ? prod.picture
                   : Array.isArray(prod.images) && prod.images.length > 0
                     ? prod.images
-                    : [prod.picture, prod.image, prod.imageUrl].filter(Boolean);
+                    : [prod.picture, prod.image, prod.imageUrl].filter((p) => typeof p === "string");
 
                 const hasPics = pics.length > 0;
 
@@ -454,11 +453,13 @@ export default function VendorProfilePage() {
                     <View style={styles.portfolioProductInfo}>
                       <View style={styles.portfolioProductHeaderRow}>
                         <Text style={styles.portfolioProductName}>{prod.name || "Product"}</Text>
-                        {prod.isActive === false && (
+                        {prod.isActive === false ? (
                           <View style={styles.inactiveBadge}>
                             <Text style={styles.inactiveBadgeText}>Inactive</Text>
                           </View>
-                        )}
+                        ): (<View style={styles.inactiveBadge}>
+                            <Text style={styles.inactiveBadgeText}>Active</Text>
+                          </View>)}
                       </View>
                       {prod.description ? (
                         <Text style={styles.portfolioProductDesc} numberOfLines={3}>{prod.description}</Text>
@@ -962,7 +963,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-around", alignItems: "center",
   },
   statBox: { alignItems: "center", flex: 1 },
-  statBoxNum: { fontFamily: "Poppins_700Bold", fontSize: 16, color: "#1A1A1A" },
+  statBoxNum: { fontFamily: "Poppins_400Bold", fontSize: 12, color: "#1A1A1A" },
   statBoxLabel: { fontFamily: "Poppins_400Regular", fontSize: 11, color: "#888", marginTop: 2 },
   statDivider: { width: 1, height: 36, backgroundColor: "#F0F0F0" },
   card: { backgroundColor: "#FFF", margin: 16, borderRadius: 16, padding: 18, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
