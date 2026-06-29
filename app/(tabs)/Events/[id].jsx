@@ -879,7 +879,24 @@ export default function EventDetailsScreen() {
             )}
 
             {/* Posted by */}
-            <View style={styles.postedByRow}>
+            <TouchableOpacity 
+              style={styles.postedByRow} 
+              activeOpacity={0.7} 
+              onPress={() => {
+                const orgId = event.userId?._id || event.userId?.id;
+                if (orgId) {
+                  router.push({
+                    pathname: `/profile/${orgId}`,
+                    params: {
+                      firstname: event.userId?.firstname,
+                      lastname: event.userId?.lastname,
+                      profile_picture: event.userId?.profile_picture,
+                      username: event.userId?.username,
+                    }
+                  });
+                }
+              }}
+            >
               <Image
                 source={{ uri: organizerImage }}
                 style={styles.postedAvatar}
@@ -893,7 +910,7 @@ export default function EventDetailsScreen() {
                 </Text>
               </View>
               <Text style={styles.postedTime}>{timeAgo(event.createdAt || event.start)}</Text>
-            </View>
+            </TouchableOpacity>
 
             {/* Hired Vendors */}
             {isOwner && (

@@ -11,6 +11,7 @@ import {
   Dimensions,
   RefreshControl,
   Modal,
+  FlatList,
 } from "react-native";
 import { LineChart } from "react-native-chart-kit";
 import * as ImagePicker from "expo-image-picker";
@@ -27,7 +28,7 @@ const { width } = Dimensions.get("window");
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id, firstname, lastname, profile_picture, username } = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState("analytics");
   const [userProfile, setUserProfile] = useState(null);
   const [loggedInUser, setLoggedInUser] = useState(null);
@@ -39,8 +40,14 @@ export default function ProfilePage() {
   const { user: authUser, logout, updateUser } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   
-  const isMyProfile = loggedInUser?._id === id;
+  const isMyProfile = authUser?._id === id || String(authUser?._id) === String(id);
   const [isFollowing, setIsFollowing] = useState(false);
+
+  // Followers / Following Modal States
+  const [followModalVisible, setFollowModalVisible] = useState(false);
+  const [followModalType, setFollowModalType] = useState('followers');
+  const [followList, setFollowList] = useState([]);
+  const [followListLoading, setFollowListLoading] = useState(false);
 
   // Ticketing Wallet States
   const [transactions, setTransactions] = useState([]);
@@ -120,22 +127,26 @@ export default function ProfilePage() {
         const token = await AsyncStorage.getItem("token");
         setLoggedInUser(authUser);
         
-        const response = await api.get("/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        
-        setUserProfile(response.data.data);
-
-        console.log("Fetched profile data:", response.data.data);
+        if (authUser?._id === id) {
+          const response = await api.get("/auth/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setUserProfile(response.data.data);
+          setActiveTab("analytics");
+        } else {
+          // Construct basic profile from params if no endpoint exists
+          setUserProfile({
+            _id: id,
+            firstname: firstname || "User",
+            lastname: lastname || "",
+            profile_picture: profile_picture || null,
+            username: username || "",
+          });
+          setActiveTab("events");
+        }
         
         await fetchFilteredEvents();
         await loadTransactions();
-        
-        if (response.data.data._id === id) {
-          setActiveTab("analytics");
-        } else {
-          setActiveTab("events");
-        }
       } catch (error) {
         console.error("Error fetching profile:", error);
       } finally {
@@ -156,11 +167,17 @@ export default function ProfilePage() {
   useEffect(() => {
     const loadFollowState = async () => {
       if (!loggedInUser?._id || isMyProfile) return;
-      const key = `following_organizers_${loggedInUser._id}`;
-      const followedList = await AsyncStorage.getItem(key);
-      if (followedList) {
-        const list = JSON.parse(followedList);
-        setIsFollowing(list.includes(id));
+      try {
+        const token = await AsyncStorage.getItem("token");
+        const response = await api.get(`/auth/isfollowing?id=${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (response.data.success) {
+          // The API response might return data as a boolean or something similar
+          setIsFollowing(response.data.data === true || response.data.isFollowing === true);
+        }
+      } catch (error) {
+        console.error("Error checking follow state:", error);
       }
     };
     loadFollowState();
@@ -176,21 +193,66 @@ export default function ProfilePage() {
   const handleFollow = async () => {
     try {
       if (!loggedInUser?._id) return;
-      const key = `following_organizers_${loggedInUser._id}`;
-      const followedList = await AsyncStorage.getItem(key);
-      let list = followedList ? JSON.parse(followedList) : [];
-      if (isFollowing) {
-        list = list.filter(i => i !== id);
-        setIsFollowing(false);
-        Toast.show({ type: 'success', text1: 'Unfollowed', text2: `You unfollowed ${userProfile?.firstname || 'this user'}` });
+      
+      const token = await AsyncStorage.getItem("token");
+      const wasFollowing = isFollowing;
+      
+      // Optimistic update
+      setIsFollowing(!wasFollowing);
+      setUserProfile(prev => ({
+        ...prev,
+        followerCount: Math.max(0, (prev.followerCount || 0) + (wasFollowing ? -1 : 1))
+      }));
+
+      const res = await api.post("/auth/follow", { id: id }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.data?.success) {
+        if (wasFollowing) {
+          Toast.show({ type: 'success', text1: 'Unfollowed', text2: `You unfollowed ${userProfile?.firstname || 'this user'}` });
+        } else {
+          Toast.show({ type: 'success', text1: 'Following! 🎉', text2: `You are now following ${userProfile?.firstname || 'this user'}` });
+        }
       } else {
-        if (!list.includes(id)) list.push(id);
-        setIsFollowing(true);
-        Toast.show({ type: 'success', text1: 'Following! 🎉', text2: `You are now following ${userProfile?.firstname || 'this user'}` });
+        throw new Error(res.data?.message || 'Failed to toggle follow status');
       }
-      await AsyncStorage.setItem(key, JSON.stringify(list));
     } catch (err) {
       console.error('Follow error:', err);
+      // Revert on failure
+      const wasFollowing = !isFollowing; // revert back to the previous state before we flipped it
+      setIsFollowing(wasFollowing);
+      setUserProfile(prev => ({
+        ...prev,
+        followerCount: Math.max(0, (prev.followerCount || 0) + (wasFollowing ? 1 : -1))
+      }));
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to update follow status' });
+    }
+  };
+
+  const openFollowModal = async (type) => {
+    setFollowModalType(type);
+    setFollowModalVisible(true);
+    setFollowListLoading(true);
+    setFollowList([]);
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const endpoint = type === 'followers' 
+        ? `/auth/follower?id=${id}`
+        : `/auth/following?id=${id}`;
+        
+      const response = await api.get(endpoint, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data?.success) {
+        setFollowList(response.data.data || []);
+      }
+    } catch (err) {
+      console.error(`Error fetching ${type}:`, err);
+      Toast.show({ type: 'error', text1: 'Error', text2: `Failed to load ${type}` });
+    } finally {
+      setFollowListLoading(false);
     }
   };
 
@@ -425,15 +487,15 @@ export default function ProfilePage() {
         </View>
 
         <View style={styles.statsGrid}>
-          <View style={styles.statItem}>
+          <TouchableOpacity style={styles.statItem} onPress={() => openFollowModal('following')}>
             <Text style={styles.statNumber}>{user.followingCount || 0}</Text>
             <Text style={styles.statLabel}>Following</Text>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{user.followerCount || 24}</Text>
+          <TouchableOpacity style={styles.statItem} onPress={() => openFollowModal('followers')}>
+            <Text style={styles.statNumber}>{user.followerCount || 0}</Text>
             <Text style={styles.statLabel}>Followers</Text>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{user.eventsCount || 0}</Text>
@@ -516,13 +578,13 @@ export default function ProfilePage() {
       <View style={styles.content}>
         {/* PUBLIC TABS */}
         {activeTab === "events" && (
-          <ExploreEvents userId={id} />
+          <ExploreEvents userId={id} scrollEnabled={false} />
         )}
         
         {activeTab === "interest" && (
           <>
             {interestedEvents.length > 0 ? (
-              <ExploreEvents events={interestedEvents} />
+              <ExploreEvents events={interestedEvents} scrollEnabled={false} />
             ) : (
               <View style={styles.emptyState}>
                 <Ionicons name="heart-outline" size={64} color="#ccc" />
@@ -785,6 +847,80 @@ export default function ProfilePage() {
             Thank you for using Venire. This receipt serves as official proof of payment. For queries, reach out to billing@venire.com.
           </Text>
         </View>
+      </View>
+    </Modal>
+
+    {/* Followers / Following Modal */}
+    <Modal
+      visible={followModalVisible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setFollowModalVisible(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>
+            {followModalType === 'followers' ? 'Followers' : 'Following'}
+          </Text>
+          <TouchableOpacity onPress={() => setFollowModalVisible(false)}>
+            <Ionicons name="close" size={28} color="#333" />
+          </TouchableOpacity>
+        </View>
+        
+        {followListLoading ? (
+          <ActivityIndicator size="large" color="#5A31F4" style={{ marginTop: 40 }} />
+        ) : followList.length === 0 ? (
+          <View style={styles.emptyFollowState}>
+            <Ionicons name="people-outline" size={64} color="#ccc" />
+            <Text style={styles.emptyFollowText}>
+              {followModalType === 'followers' 
+                ? "No followers yet" 
+                : "Not following anyone yet"}
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={followList}
+            keyExtractor={(item, index) => item._id || item.id || index.toString()}
+            contentContainerStyle={{ padding: 16 }}
+            renderItem={({ item }) => {
+              const userItem = item.userId || item; // Fallback depending on backend structure
+              return (
+                <TouchableOpacity 
+                  style={styles.followListItem}
+                  onPress={() => {
+                    setFollowModalVisible(false);
+                    if (userItem._id || userItem.id) {
+                      router.push({
+                        pathname: `/profile/${userItem._id || userItem.id}`,
+                        params: {
+                          firstname: userItem.firstname,
+                          lastname: userItem.lastname,
+                          profile_picture: userItem.profile_picture,
+                          username: userItem.username
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <Image 
+                    source={{ uri: userItem.profile_picture || "https://cdn-icons-png.flaticon.com/512/149/149071.png" }} 
+                    style={styles.followListAvatar} 
+                  />
+                  <View style={styles.followListInfo}>
+                    <Text style={styles.followListName}>
+                      {userItem.firstname} {userItem.lastname}
+                    </Text>
+                    <Text style={styles.followListUsername}>
+                      @{userItem.username || userItem.firstname?.toLowerCase() || 'user'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#ccc" />
+                </TouchableOpacity>
+              );
+            }}
+          />
+        )}
       </View>
     </Modal>
     </View>

@@ -39,7 +39,7 @@ api.interceptors.request.use(async (config) => {
     
     // Only add token if user is not a guest and token exists
     if (token && isGuest !== "true") {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers.Authorization = `Bearer ${token  }`;
     }
   }
   

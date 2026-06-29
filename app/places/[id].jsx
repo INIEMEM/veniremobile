@@ -456,7 +456,24 @@ export default function PlaceDetailScreen() {
             )}
 
             {/* Posted by */}
-            <View style={styles.postedByRow}>
+            <TouchableOpacity 
+              style={styles.postedByRow}
+              activeOpacity={0.7}
+              onPress={() => {
+                const orgId = place.postedBy?._id || place.postedBy?.id;
+                if (orgId) {
+                  router.push({
+                    pathname: `/profile/${orgId}`,
+                    params: {
+                      firstname: place.postedBy?.firstname,
+                      lastname: place.postedBy?.lastname,
+                      profile_picture: place.postedBy?.profile_picture,
+                      username: place.postedBy?.username,
+                    }
+                  });
+                }
+              }}
+            >
               <Image
                 source={{ uri: place.postedBy?.profile_picture }}
                 style={styles.postedAvatar}
@@ -468,7 +485,7 @@ export default function PlaceDetailScreen() {
                 </Text>
               </View>
               <Text style={styles.postedTime}>{timeAgo(place.createdAt)}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* ── COMMENTS ────────────────────────────────── */}

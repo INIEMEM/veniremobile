@@ -50,7 +50,8 @@ export default function ExploreEvents({
   loadingMore = false,
   ListHeaderComponent = null,
   ListFooterComponent = null,
-  contentContainerStyle = null
+  contentContainerStyle = null,
+  scrollEnabled = true,
 }) {
   const router = useRouter();
   const [events, setEvents] = useState([]);
@@ -1340,6 +1341,7 @@ export default function ExploreEvents({
       <FlatList
         data={events.filter(isRenderableEvent)}
         keyExtractor={getEventKey}
+        scrollEnabled={scrollEnabled}
         renderItem={({ item, index }) => {
           const isSponsored = item.isSponsored === true ||
             (item.isSponsored === undefined && index % 4 === 3)

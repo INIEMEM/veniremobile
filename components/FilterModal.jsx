@@ -61,7 +61,7 @@ const FilterModal = ({ visible, onClose, selectedFilter, onSelectFilter }) => {
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
             {/* Status Section */}
-            <Text style={styles.sectionTitle}>Event Status</Text>
+            <Text style={styles.sectionTitle}> Status</Text>
             <View style={styles.chipRow}>
               {[{ id: "all", label: "All" }, { id: "ongoing", label: "Live" }, { id: "pending", label: "Upcoming" }, { id: "completed", label: "Past" }].map((item) => (
                 <TouchableOpacity
