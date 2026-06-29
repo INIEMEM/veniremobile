@@ -14,6 +14,23 @@ import api from "../../utils/axiosInstance";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
 
+const timeAgo = (dateStr) => {
+  if (!dateStr) return "Recently";
+  const date = new Date(dateStr);
+  const seconds = Math.floor((new Date() - date) / 1000);
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + "y ago";
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + "mo ago";
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + "d ago";
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + "h ago";
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + "m ago";
+  return "Just now";
+};
+
 export default function Notifications() {
 
   const [notifications, setNotifications] = useState([]);
@@ -44,15 +61,21 @@ export default function Notifications() {
         rawData = rawData || [];
         
         // Map backend fields to frontend UI needs
-        const mapped = rawData.map(item => ({
-          id: item._id || item.id || Math.random().toString(),
-          type: item.type || "default",
-          message: item.message || item.title || "New Notification",
-          subtext: item.subtext || "",
-          time: "Recently", // You can use a timeAgo function if you have one
-          isRead: !!item.read || !!item.isRead,
-          createdAt: item.createdAt,
-        }));
+        const mapped = rawData.map(item => {
+          let msg = item.message || item.title || "New Notification";
+          if (msg.includes("undefined just purchased")) {
+            msg = msg.replace("undefined just purchased", "Someone just purchased");
+          }
+          return {
+            id: item._id || item.id || Math.random().toString(),
+            type: item.type || "default",
+            message: msg,
+            subtext: item.subtext || "",
+            time: timeAgo(item.createdAt),
+            isRead: !!item.read || !!item.isRead,
+            createdAt: item.createdAt,
+          };
+        });
         setNotifications(mapped);
       }
     } catch (error) {

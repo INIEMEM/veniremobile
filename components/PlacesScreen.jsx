@@ -23,7 +23,7 @@ import { useEffect } from "react";
 
 const { width } = Dimensions.get("window");
 
-export default function PlacesScreen({ searchQuery = "" }) {
+export default function PlacesScreen({ searchQuery = "", filterStatus }) {
   const [places, setPlaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -35,6 +35,18 @@ export default function PlacesScreen({ searchQuery = "" }) {
   const fabAnim = useRef(new Animated.Value(1)).current;
 
   // ── Filter places by category + search ──────────────────
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    return R * c;
+  };
+
   const filtered = places.filter((p) => {
     const matchCat = activeCategory === "all" || p.category === activeCategory;
     const matchSearch = !searchQuery ||
@@ -42,7 +54,26 @@ export default function PlacesScreen({ searchQuery = "" }) {
       p.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.tags?.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchCat && matchSearch;
+
+    let matchFilter = true;
+    if (filterStatus) {
+      if (filterStatus.distance && filterStatus.distance !== "any") {
+        const radius = parseInt(filterStatus.distance, 10);
+        if (p.lat && p.long) {
+          const dist = calculateDistance(6.5244, 3.3792, parseFloat(p.lat), parseFloat(p.long));
+          if (dist > radius) matchFilter = false;
+        } else {
+          matchFilter = false;
+        }
+      }
+      if (filterStatus.price === "free") {
+        if (p.priceRange !== "Free" && p.priceRange !== "$") matchFilter = false;
+      } else if (filterStatus.price === "paid") {
+        if (p.priceRange === "Free" || p.priceRange === "$") matchFilter = false;
+      }
+    }
+
+    return matchCat && matchSearch && matchFilter;
   });
 
   

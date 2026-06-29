@@ -493,7 +493,7 @@ export default function Home() {
             />
           )
         ) : (
-          <PlacesScreen searchQuery={searchQuery} />
+          <PlacesScreen searchQuery={searchQuery} filterStatus={selectedFilter} />
         )}
       </Animated.View>
 
