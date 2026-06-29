@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   ScrollView,
+  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -17,10 +18,136 @@ import Toast from 'react-native-toast-message';
 import * as WebBrowser from 'expo-web-browser';
 import api from '../../utils/axiosInstance';
 
+const PENDING_WALLET_PAYMENT_KEY = 'venire_pending_wallet_payment';
+
 export default function FundWalletScreen() {
   const router = useRouter();
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
+  const pendingPaymentRef = useRef(null);
+  const verifyingRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+
+  useEffect(() => {
+    restorePendingPayment();
+
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      const wasInBackground = /inactive|background/.test(appStateRef.current);
+      appStateRef.current = nextAppState;
+
+      if (wasInBackground && nextAppState === 'active' && pendingPaymentRef.current?.reference) {
+        await verifyPendingPayment({
+          reference: pendingPaymentRef.current.reference,
+          shouldNavigateBack: true,
+          showPendingToast: false,
+        });
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  const restorePendingPayment = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(PENDING_WALLET_PAYMENT_KEY);
+      if (!stored) return;
+
+      const pendingPayment = JSON.parse(stored);
+      if (pendingPayment?.reference) {
+        pendingPaymentRef.current = pendingPayment;
+        await verifyPendingPayment({
+          reference: pendingPayment.reference,
+          shouldNavigateBack: false,
+          showPendingToast: false,
+        });
+      }
+    } catch (err) {
+      console.log('Could not restore pending wallet payment:', err?.message);
+    }
+  };
+
+  const clearPendingPayment = async () => {
+    pendingPaymentRef.current = null;
+    await AsyncStorage.removeItem(PENDING_WALLET_PAYMENT_KEY);
+  };
+
+  const getPaymentStatus = (data) => (
+    data?.data?.data?.status ||
+    data?.data?.status ||
+    data?.status ||
+    data?.payment?.status ||
+    data?.transaction?.status
+  );
+
+  const isPaymentSuccessful = (data) => {
+    const status = getPaymentStatus(data);
+    const normalizedStatus = String(status || '').toLowerCase();
+    return (data?.success || data?.data?.success) && ['success', 'successful', 'paid'].includes(normalizedStatus);
+  };
+
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const verifyPendingPayment = async ({
+    reference,
+    shouldNavigateBack = true,
+    showPendingToast = true,
+    maxAttempts = 6,
+  }) => {
+    if (!reference || verifyingRef.current) return false;
+
+    verifyingRef.current = true;
+    setLoading(true);
+
+    try {
+      const token = await AsyncStorage.getItem('token');
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const verifyRes = await api.get('/payment/verify', {
+          headers: { Authorization: `Bearer ${token}` },
+          params: {
+            method: 'paystack',
+            reference,
+          },
+        });
+
+        if (isPaymentSuccessful(verifyRes.data)) {
+          await clearPendingPayment();
+          Toast.show({ type: 'success', text1: 'Success', text2: 'Wallet funded successfully!' });
+          if (shouldNavigateBack) router.back();
+          return true;
+        }
+
+        if (attempt < maxAttempts) {
+          await wait(1500);
+        }
+      }
+
+      if (showPendingToast) {
+        Toast.show({
+          type: 'info',
+          text1: 'Payment is being confirmed',
+          text2: 'We will refresh your wallet once Paystack confirms it.',
+          visibilityTime: 5000,
+        });
+      }
+
+      return false;
+    } catch (err) {
+      console.log('Payment verify error:', err?.response?.data || err?.message);
+      if (showPendingToast) {
+        Toast.show({
+          type: 'info',
+          text1: 'Payment is being confirmed',
+          text2: 'Please reopen this screen in a moment if your balance has not updated.',
+          visibilityTime: 5000,
+        });
+      }
+      return false;
+    } finally {
+      verifyingRef.current = false;
+      setLoading(false);
+    }
+  };
 
   const handleFundWallet = async () => {
     const fundAmount = parseFloat(amount);
@@ -70,30 +197,24 @@ export default function FundWalletScreen() {
         throw new Error("Could not extract authorization URL from response.");
       }
 
+      if (!ref) {
+        throw new Error("Could not extract payment reference from response.");
+      }
+
+      const pendingPayment = {
+        reference: ref,
+        amount: fundAmount,
+        createdAt: new Date().toISOString(),
+      };
+      pendingPaymentRef.current = pendingPayment;
+      await AsyncStorage.setItem(PENDING_WALLET_PAYMENT_KEY, JSON.stringify(pendingPayment));
+
       // 2. Open Paystack Checkout
-      const result = await WebBrowser.openBrowserAsync(authUrl);
+      await WebBrowser.openBrowserAsync(authUrl);
 
       // 3. Verify Payment after browser is closed or redirects
       // Even if user cancels, we hit verify to check the actual status on Paystack
-      setLoading(true);
-      
-      const verifyRes = await api.get('/payment/verify', {
-        headers: { Authorization: `Bearer ${token}` },
-        params: {
-          method: "paystack",
-          reference: ref
-        }
-      });
-
-      const vData = verifyRes.data;
-      const status = vData?.data?.data?.status || vData?.data?.status || vData?.status;
-
-      if ((vData?.success || vData?.data?.success) && status === 'success') {
-        Toast.show({ type: 'success', text1: 'Success', text2: 'Wallet funded successfully!' });
-        router.back();
-      } else {
-        Toast.show({ type: 'info', text1: 'Payment Unsuccessful', text2: 'Your payment was not completed or failed.' });
-      }
+      await verifyPendingPayment({ reference: ref });
 
     } catch (err) {
       console.log('Funding error:', err?.response?.data || err?.message);

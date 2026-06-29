@@ -38,6 +38,7 @@ export const AuthProvider = ({ children }) => {
     try {
       // Save token in storage
       await AsyncStorage.setItem("token", token);
+      await AsyncStorage.removeItem("isGuest");
       setToken(token);
 
       // Fetch user details

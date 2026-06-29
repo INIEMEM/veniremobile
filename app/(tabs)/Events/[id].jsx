@@ -169,7 +169,7 @@ export default function EventDetailsScreen() {
           : response.data.data;
         setEvent(eventData);
       }
-      // console.log("Fetched event data:", response.data);
+      console.log("Fetched event data:", response.data?.data?.tickets);
     } catch (error) {
       console.error("Error fetching event details:", error);
       Toast.show({

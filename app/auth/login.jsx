@@ -43,7 +43,7 @@ export default function LoginScreen() {
   const { login, logout } = useAuth();
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
   const { user: clerkUser, isLoaded } = useUser();
-  const { isSignedIn, signOut } = useClerkAuth();
+  const { isSignedIn, signOut, getToken } = useClerkAuth();
   const { session } = useSession();
   const clerk = useClerk();
 
@@ -214,13 +214,47 @@ export default function LoginScreen() {
           console.warn("Could not retrieve user email from Google. Continuing with available Clerk data.");
         }
 
+        const getClerkSessionToken = async () => {
+          const tokenGetters = [
+            getToken,
+            clerk.session?.getToken?.bind(clerk.session),
+            session?.getToken?.bind(session),
+          ].filter(Boolean);
+
+          for (const tokenGetter of tokenGetters) {
+            try {
+              const token = await tokenGetter();
+              if (token) return token;
+            } catch (_) {}
+          }
+
+          return null;
+        };
+
+        const clerkSessionToken = await getClerkSessionToken();
+
+        if (!clerkSessionToken) {
+          console.warn("Could not retrieve Clerk session token for Google login.");
+        }
+
         // Send user data to your backend
-        const response = await api.post("/auth/google/login", {
+        const googleLoginPayload = {
           email: userEmail || "",
+          firstname: userFirstName || "",
+          lastname: userLastName || "",
           firstName: userFirstName || "",
           lastName: userLastName || "",
           clerkId: clerkUserId || "",
+          googleId: clerkUserId || "",
           sessionId: createdSessionId,
+          clerkToken: clerkSessionToken || "",
+          clerkJwt: clerkSessionToken || "",
+          provider: "google",
+          authProvider: "clerk",
+        };
+
+        const response = await api.post("/auth/google/login", googleLoginPayload, {
+          skipAuth: true,
         });
 
         const token = response.data?.token;
@@ -241,10 +275,17 @@ export default function LoginScreen() {
       }
     } catch (error) {
       console.error("Google Sign-In Error:", error);
+      console.log("Google Sign-In Response:", error.response?.data);
+      const errorMessage =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        "Could not sign in with Google.";
+
       Toast.show({
         type: "error",
         text1: "Sign-In Failed",
-        text2: error.message || "Could not sign in with Google.",
+        text2: errorMessage,
       });
       
       // If there was an error, sign out from Clerk to clean up

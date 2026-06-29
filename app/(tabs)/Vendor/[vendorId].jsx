@@ -294,8 +294,17 @@ export default function VendorProfilePage() {
     );
   }
   console.log('the vendor info', vendor)
-  const productsList = vendor.products 
-                  
+  const productsList = Array.isArray(vendor.products) ? vendor.products : [];
+  const vendorProducts = vendor.products
+                      || vendor.pricingTiers
+                      || vendor.vendor?.products
+                      || vendorFullRes?.products
+                      || vendorFullRes?.data?.products
+                      || [];
+  const hasBookableProducts = Array.isArray(vendorProducts) && vendorProducts.length > 0;
+  const getProductKey = (product) => product?._id || product?.id || product?.name;
+  const isPlanSelected = (product) => selectedPlan && getProductKey(selectedPlan) === getProductKey(product);
+  const formatCurrency = (value) => `₦${Number(value || 0).toLocaleString()}`;
 
   const portfolioImages = vendor.portfolio?.length 
   ? vendor.portfolio 
@@ -495,15 +504,7 @@ export default function VendorProfilePage() {
         {activeTab === "pricing" && (
           <View style={styles.pricingContainer}>
             {(() => {
-              // Safely extract products from various possible backend locations
-              const products = vendor.products 
-                            || vendor.pricingTiers 
-                            || vendor.vendor?.products 
-                            || vendorFullRes?.products 
-                            || vendorFullRes?.data?.products 
-                            || [];
-                            
-              if (products.length === 0) {
+              if (!hasBookableProducts) {
                 return (
                   <View style={{ padding: 20 }}>
                     <Text style={{ textAlign: "center", color: "#888", fontFamily: "Poppins_400Regular" }}>
@@ -513,13 +514,13 @@ export default function VendorProfilePage() {
                 );
               }
               
-              return products.map((tier, idx) => (
+              return vendorProducts.map((tier, idx) => (
               <TouchableOpacity
                 key={tier._id || tier.id || idx}
                 style={[
                   styles.pricingCard,
                   idx === 1 && styles.pricingCardFeatured,
-                  (selectedPlan?.id === tier.id || selectedPlan?._id === tier._id) && styles.pricingCardSelected,
+                  isPlanSelected(tier) && styles.pricingCardSelected,
                 ]}
                 onPress={() => setSelectedPlan(tier)}
                 activeOpacity={0.88}
@@ -529,14 +530,14 @@ export default function VendorProfilePage() {
                     <Text style={styles.popularBadgeText}>Most Popular</Text>
                   </View>
                 )}
-                {(selectedPlan?.id === tier.id || selectedPlan?._id === tier._id) && (
+                {isPlanSelected(tier) && (
                   <View style={styles.selectedCheckmark}>
                     <Ionicons name="checkmark-circle" size={22} color="#5A31F4" />
                   </View>
                 )}
                 <Text style={[styles.tierName, idx === 1 && styles.tierNameFeatured]}>{tier.name}</Text>
                 <Text style={[styles.tierPrice, idx === 1 && styles.tierPriceFeatured]}>
-                  ₦{(tier.price || 0).toLocaleString()}
+                  {formatCurrency(tier.price)}
                 </Text>
                 <Text style={styles.tierDesc}>{tier.description || `Delivery time: ${tier.deliveryTime || 'N/A'} • Delivery Fee: ₦${tier.deliveryFee || 0}`}</Text>
                 {tier.includes && (
@@ -664,7 +665,7 @@ export default function VendorProfilePage() {
                   <View style={styles.selectedPlanBanner}>
                     <Ionicons name="layers-outline" size={16} color="#5A31F4" />
                     <Text style={styles.selectedPlanText}>
-                      {selectedPlan.name} — ₦{selectedPlan.price.toLocaleString()}
+                      {selectedPlan.name} — {formatCurrency(selectedPlan.price)}
                     </Text>
                   </View>
                 )}
@@ -795,9 +796,42 @@ export default function VendorProfilePage() {
                       </View>
                     )}
 
+                    <Text style={[styles.formSectionLabel, { marginTop: 20 }]}>Select Package</Text>
+                    {!hasBookableProducts ? (
+                      <View style={styles.emptyPackageBox}>
+                        <Ionicons name="cube-outline" size={22} color="#9CA3AF" />
+                        <Text style={styles.emptyPackageText}>No products or packages available for this vendor.</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.modalPackageList}>
+                        {vendorProducts.map((product, idx) => {
+                          const selected = isPlanSelected(product);
+                          return (
+                            <TouchableOpacity
+                              key={product._id || product.id || product.name || idx}
+                              style={[styles.modalPackageCard, selected && styles.modalPackageCardSelected]}
+                              onPress={() => setSelectedPlan(product)}
+                              activeOpacity={0.86}
+                            >
+                              <View style={styles.modalPackageIcon}>
+                                <Ionicons name={selected ? "checkmark-circle" : "layers-outline"} size={18} color="#5A31F4" />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.modalPackageName} numberOfLines={1}>{product.name || "Package"}</Text>
+                                <Text style={styles.modalPackageMeta} numberOfLines={2}>
+                                  {product.description || `Delivery time: ${product.deliveryTime || "N/A"} • Delivery Fee: ${formatCurrency(product.deliveryFee)}`}
+                                </Text>
+                              </View>
+                              <Text style={styles.modalPackagePrice}>{formatCurrency(product.price)}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+
                     <TouchableOpacity
-                      style={[styles.bookingNextBtn, !selectedEvent && { opacity: 0.4 }]}
-                      disabled={!selectedEvent}
+                      style={[styles.bookingNextBtn, (!selectedEvent || !selectedPlan) && { opacity: 0.4 }]}
+                      disabled={!selectedEvent || !selectedPlan}
                       onPress={() => setBookingStep(2)}
                     >
                       <Text style={styles.bookingNextBtnText}>Next →</Text>
@@ -829,7 +863,7 @@ export default function VendorProfilePage() {
                       {selectedPlan && (
                         <View style={[styles.summaryRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#eee" }]}>
                           <Text style={[styles.summaryLabel, { fontFamily: "Poppins_700Bold" }]}>Estimated Cost</Text>
-                          <Text style={[styles.summaryVal, { color: "#5A31F4", fontFamily: "Poppins_700Bold" }]}>₦{(selectedPlan.price || 0).toLocaleString()}</Text>
+                          <Text style={[styles.summaryVal, { color: "#5A31F4", fontFamily: "Poppins_700Bold" }]}>{formatCurrency(selectedPlan.price)}</Text>
                         </View>
                       )}
                     </View>
@@ -1078,6 +1112,41 @@ const styles = StyleSheet.create({
   stepLineSmallActive: { backgroundColor: "#5A31F4" },
   bookingFormSection: { gap: 0 },
   formSectionLabel: { fontFamily: "Poppins_700Bold", fontSize: 15, color: "#1A1A1A", marginBottom: 14 },
+  modalPackageList: { gap: 10, marginBottom: 18 },
+  modalPackageCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFF",
+    borderWidth: 1.5,
+    borderColor: "#E8DBFF",
+    borderRadius: 14,
+    padding: 12,
+  },
+  modalPackageCardSelected: { backgroundColor: "#F3EDFF", borderColor: "#5A31F4" },
+  modalPackageIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F3EDFF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalPackageName: { fontFamily: "Poppins_700Bold", fontSize: 14, color: "#1A1A1A" },
+  modalPackageMeta: { fontFamily: "Poppins_400Regular", fontSize: 11, color: "#777", marginTop: 2, lineHeight: 16 },
+  modalPackagePrice: { fontFamily: "Poppins_700Bold", fontSize: 13, color: "#5A31F4", marginLeft: 8 },
+  emptyPackageBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#F8F6FF",
+    borderWidth: 1,
+    borderColor: "#E0D4FF",
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 18,
+  },
+  emptyPackageText: { fontFamily: "Poppins_400Regular", fontSize: 13, color: "#888", textAlign: "center" },
   inputGroup: { marginBottom: 14 },
   inputLabel: { fontFamily: "Poppins_500Medium", fontSize: 13, color: "#444", marginBottom: 6 },
   input: { backgroundColor: "#F8F6FF", borderWidth: 1.5, borderColor: "#E0D4FF", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontFamily: "Poppins_400Regular", fontSize: 14, color: "#1A1A1A" },

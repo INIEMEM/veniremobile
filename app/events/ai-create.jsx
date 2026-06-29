@@ -1006,22 +1006,44 @@ export default function AICreateEvent() {
     }
   };
 
+  const getDisplayTextForBackendMessage = (message) => {
+    const rawText = message.text || message.content || '';
+    if (message.role !== 'user' || !rawText.includes('Structured response:')) {
+      return rawText;
+    }
+
+    const friendlyText = rawText.split('Structured response:')[0].trim();
+    const selectedMatch = friendlyText.match(/^Selected\s+[^:]+:\s*(.+)$/i);
+    return selectedMatch?.[1]?.trim() || friendlyText;
+  };
+
   const normalizeBackendMessages = (backendMessages) => {
     if (!Array.isArray(backendMessages) || backendMessages.length === 0) {
       return [createWelcomeMessage()];
     }
 
     return backendMessages.map((message, index) => ({
+      ...message,
       id: message.id || message._id || `${Date.now()}_${index}`,
       role: message.role === 'assistant' ? 'assistant' : 'user',
       type: message.type || (message.role === 'assistant' ? 'agent_message' : 'user'),
-      text: message.text || message.content || '',
-      ...message,
+      text: getDisplayTextForBackendMessage(message),
+      rawText: message.text || message.content || '',
     }));
   };
 
   const normalizeChatResponse = (data) => {
     const root = data?.data || data || {};
+    if (Array.isArray(root)) {
+      return {
+        chatId: null,
+        messages: [],
+        payload: null,
+        history: [],
+        chats: root,
+      };
+    }
+
     const chat = root.chat || root.session || root;
 
     return {
@@ -1032,6 +1054,16 @@ export default function AICreateEvent() {
       chats: root.chats || root.sessions || [],
     };
   };
+
+  const normalizeChatIndex = (chats) => (
+    Array.isArray(chats) ? chats.map((chat) => ({
+      id: chat.chatId || chat._id || chat.id,
+      chatId: chat.chatId || chat._id || chat.id,
+      name: chat.name || chat.title || chat.eventPayload?.name || chat.payload?.name || 'AI Event Plan',
+      date: chat.updatedAt || chat.createdAt || new Date().toISOString(),
+      ...chat,
+    })).filter(chat => chat.chatId || chat.id) : []
+  );
 
   const applyBackendChat = (data) => {
     const normalized = normalizeChatResponse(data);
@@ -1046,57 +1078,96 @@ export default function AICreateEvent() {
       });
     }
     if (normalized.chats.length > 0) {
-      const backendChats = normalized.chats.map((chat) => ({
-        id: chat.chatId || chat._id || chat.id,
-        chatId: chat.chatId || chat._id || chat.id,
-        name: chat.name || chat.title || chat.eventPayload?.name || chat.payload?.name || 'AI Event Plan',
-        date: chat.updatedAt || chat.createdAt || new Date().toISOString(),
-        ...chat,
-      }));
+      const backendChats = normalizeChatIndex(normalized.chats);
       setAllChats(backendChats);
       AsyncStorage.setItem(AI_CHAT_INDEX_KEY, JSON.stringify(backendChats)).catch(() => {});
     }
   };
 
-  const openBackendChat = async (requestedChatId = null) => {
+  const loadBackendChat = async (selectedChatId) => {
+    if (!selectedChatId) return false;
+
     try {
       setLoadingChat(true);
-      const body = {
-        type: 'ai_chat',
-        clientSessionId,
-        ...(requestedChatId && { chatId: requestedChatId }),
-      };
-      const response = await api.post('/ai/chats', body);
+      const response = await api.get(`/ai/chats/${selectedChatId}`);
+      applyBackendChat(response.data);
+      return true;
+    } catch (err) {
+      console.log('Could not load AI chat from backend:', err?.response?.data || err?.message);
+      return false;
+    } finally {
+      setLoadingChat(false);
+    }
+  };
+
+  const loadBackendChatIndex = async () => {
+    try {
+      setLoadingChat(true);
+      const response = await api.get('/ai/chats');
+      const normalized = normalizeChatResponse(response.data);
+      const backendChats = normalizeChatIndex(normalized.chats);
+
+      if (backendChats.length > 0) {
+        setAllChats(backendChats);
+        await AsyncStorage.setItem(AI_CHAT_INDEX_KEY, JSON.stringify(backendChats));
+        await loadBackendChat(backendChats[0].chatId || backendChats[0].id);
+        return true;
+      }
+    } catch (err) {
+      console.log('Could not load AI chat history from backend:', err?.response?.data || err?.message);
+    } finally {
+      setLoadingChat(false);
+    }
+
+    return false;
+  };
+
+  const openBackendChat = async () => {
+    // Only called when starting a brand new session
+    try {
+      setLoadingChat(true);
+      const response = await api.post('/ai/chats', { type: 'ai_chat', clientSessionId });
       applyBackendChat(response.data);
       return normalizeChatResponse(response.data).chatId;
     } catch (err) {
-      console.log('Could not load AI chat from backend:', err?.response?.data || err?.message);
-      Toast.show({
-        type: 'error',
-        text1: 'AI chat unavailable',
-        text2: 'Could not connect to the AI chat session.',
-      });
+      console.log('Could not create AI chat session:', err?.response?.data || err?.message);
       return null;
     } finally {
       setLoadingChat(false);
     }
   };
 
+  const restoreChatFromCache = (cachedChat) => {
+    const chatId = cachedChat.chatId || cachedChat.id;
+    if (chatId) setChatId(chatId);
+    setAllChats(prev => {
+      const withoutDup = prev.filter(c => (c.chatId || c.id) !== chatId);
+      return [cachedChat, ...withoutDup];
+    });
+  };
+
   // ─── Load backend chat/session on mount ──────────────────────────────────
   useEffect(() => {
     const bootChat = async () => {
+      const loadedFromBackend = await loadBackendChatIndex();
+      if (loadedFromBackend) return;
+
       try {
         const existing = await AsyncStorage.getItem(AI_CHAT_INDEX_KEY);
         const parsed = existing ? JSON.parse(existing) : [];
         if (parsed.length > 0) {
           setAllChats(parsed);
-          await openBackendChat(parsed[0].chatId || parsed[0].id);
+          const cachedChatId = parsed[0].chatId || parsed[0].id;
+          const loadedChat = await loadBackendChat(cachedChatId);
+          if (!loadedChat) restoreChatFromCache(parsed[0]);
+          setLoadingChat(false);
           return;
         }
       } catch (err) {
         console.log('Could not read AI chat index:', err?.message);
       }
 
+      // No existing chat — start a fresh session with the backend
       await openBackendChat();
     };
 
@@ -1116,13 +1187,25 @@ export default function AICreateEvent() {
     setEventPayload(createDefaultPayload());
     setConversationHistory([]);
     setIsHistoryModalVisible(false);
+    setChatId(null);
     await openBackendChat();
   };
 
   const loadChat = async (chat) => {
     const selectedChatId = chat.chatId || chat.id || chat._id;
     setIsHistoryModalVisible(false);
-    if (selectedChatId) await openBackendChat(selectedChatId);
+    setMessages([createWelcomeMessage()]);
+    setEventPayload(createDefaultPayload());
+    setConversationHistory([]);
+    const loadedChat = await loadBackendChat(selectedChatId);
+    if (!loadedChat) {
+      restoreChatFromCache(chat);
+      Toast.show({
+        type: 'error',
+        text1: 'Could not load chat',
+        text2: 'I found the chat ID, but could not fetch its messages.',
+      });
+    }
   };
 
   const scrollToBottom = useCallback(() => {
@@ -2047,8 +2130,8 @@ export default function AICreateEvent() {
         capacity: eventPayload.capacity,
         isTicket: eventPayload.isTicket,
         ticketAmount: parseFloat(eventPayload.ticketAmount) || 0,
-        isSponsored: false,
-        sponsorAmount: 0,
+        isSponsored: eventPayload.isSponsored || false,
+        sponsorAmount: parseFloat(eventPayload.sponsorAmount) || 0,
         start: eventPayload.start,
         end: eventPayload.end,
         categoryId: eventPayload.categoryId || '',
@@ -2056,6 +2139,8 @@ export default function AICreateEvent() {
         images: eventPayload.posterUrl ? [eventPayload.posterUrl] : [],
         hashtags: eventPayload.hashtags || [],
         tickets: eventPayload.tickets || [],
+        promoCodes: eventPayload.promoCodes || [],
+        seatingPlans: eventPayload.seatingPlans || [],
       }, { headers: { Authorization: `Bearer ${token}` } });
 
       Toast.show({ type: 'success', text1: 'Event Published! 🎉', text2: 'Your AI-generated event is now live.' });

@@ -433,8 +433,9 @@ export default function ExploreEvents({
       // Always fetch full event details to get the tickets array
       // (the list API doesn't return tickets, but the backend ALWAYS requires a non-empty tickets array)
       const res = await api.get(`/event/key?key=_id&value=${eventId}`, { headers: { Authorization: `Bearer ${token}` } });
+      console.log("RAW response data path:", JSON.stringify(res.data, null, 2));
       const fullEvent = Array.isArray(res.data?.data) ? res.data.data[0] : res.data?.data;
-
+      console.log("Full event for ticket modal:", fullEvent?.tickets);
       if (!fullEvent) {
         toast.error("Could not load event details. Please try again.");
         return;
@@ -492,6 +493,7 @@ export default function ExploreEvents({
           .filter(([_, qty]) => qty > 0)
           .map(([id, qty]) => ({ id, quantity: qty }))
       };
+      console.log('the submit event payload', payload)
       const res = await api.post("/event/interest", payload, {
         headers: { Authorization: `Bearer ${token}` }
       });

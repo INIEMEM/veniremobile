@@ -16,12 +16,14 @@ const PUBLIC_ENDPOINTS = [
   '/auth/signup',
   '/auth/forgot',
   '/auth/reset',
+  '/auth/google/login',
   '/event/explore',  // Public explore endpoint
   '/place/explore',  // Public explore endpoint for places
 ];
 
 // Check if endpoint is public
 const isPublicEndpoint = (url) => {
+  if (!url) return false;
   return PUBLIC_ENDPOINTS.some(endpoint => url.includes(endpoint));
 };
 
@@ -29,6 +31,7 @@ const isPublicEndpoint = (url) => {
 api.interceptors.request.use(async (config) => {
   // Skip auth for public endpoints UNLESS explicitly set
   const skipAuth = config.skipAuth || isPublicEndpoint(config.url);
+  delete config.skipAuth;
   
   if (!skipAuth) {
     const token = await AsyncStorage.getItem("token");
@@ -48,9 +51,14 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config || {};
     
     if (error.response?.status === 401) {
+      if (originalRequest.skipAuth || isPublicEndpoint(originalRequest.url)) {
+        console.log("Unauthorized public endpoint:", originalRequest.url);
+        return Promise.reject(error);
+      }
+
       console.log("Unauthorized: handling 401 error...");
       
       // Check if this is a guest trying to access protected content

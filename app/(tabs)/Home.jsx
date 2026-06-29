@@ -61,6 +61,7 @@ export default function Home() {
       
       if (token && storedUser && guestStatus !== "true") {
         setUser(JSON.parse(storedUser));
+        console.log("User data set successfully:", JSON.parse(storedUser));
       } else {
         setUser(null);
       }
