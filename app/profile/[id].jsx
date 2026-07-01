@@ -498,7 +498,7 @@ export default function ProfilePage() {
           </TouchableOpacity>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{user.eventsCount || 0}</Text>
+            <Text style={styles.statNumber}>{user?.totalEventsCreated || 0}</Text>
             <Text style={styles.statLabel}>Events</Text>
           </View>
         </View>

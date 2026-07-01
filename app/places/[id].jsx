@@ -71,7 +71,17 @@ export default function PlaceDetailScreen() {
   const [commentText, setCommentText] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const [showAllDesc, setShowAllDesc] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
   const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    AsyncStorage.getItem('user').then(u => {
+      if (u) {
+        const parsed = JSON.parse(u);
+        setCurrentUserId(parsed._id || parsed.id);
+      }
+    });
+  }, []);
 
 
   // ── Fetch Place Data ───────────────────────────────────────
@@ -253,15 +263,29 @@ export default function PlaceDetailScreen() {
   };
 
   // ── Render ───────────────────────────────────────────────
+  const isOwner = !!(currentUserId && place?.postedBy &&
+    (place.postedBy._id === currentUserId || place.postedBy.id === currentUserId || place.postedBy === currentUserId));
+
   return (
     <View style={styles.container}>
-      {/* Back button — floats above media */}
-      <TouchableOpacity
-        style={styles.backBtn}
-        onPress={() => { pauseAll(); router.back(); }}
-      >
-        <Ionicons name="chevron-back" size={22} color="#FFF" />
-      </TouchableOpacity>
+      {/* Back button + Edit button floats above media */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => { pauseAll(); router.back(); }}
+        >
+          <Ionicons name="chevron-back" size={22} color="#FFF" />
+        </TouchableOpacity>
+        {isOwner && (
+          <TouchableOpacity
+            style={styles.editFloatBtn}
+            onPress={() => router.push(`/places/edit/${id}`)}
+          >
+            <Ionicons name="pencil" size={16} color="#FFF" />
+            <Text style={styles.editFloatText}>Edit</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -592,17 +616,37 @@ const styles = StyleSheet.create({
   },
 
   // Back button
-  backBtn: {
+  topBar: {
     position: "absolute",
     top: Platform.OS === "ios" ? 54 : (StatusBar.currentHeight || 30) + 12,
     left: 16,
+    right: 16,
     zIndex: 100,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  backBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  editFloatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(90,49,244,0.85)",
+  },
+  editFloatText: {
+    fontSize: 13,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#FFF",
   },
 
   // Media
