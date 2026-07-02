@@ -30,9 +30,25 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
   const [hasMore, setHasMore] = useState(true);
   const toast = useToast();
   const [activeCategory, setActiveCategory] = useState("all");
+  const [categories, setCategories] = useState([{ _id: "all", name: "All" }]);
   const [refreshing, setRefreshing] = useState(false);
   const [uploadVisible, setUploadVisible] = useState(false);
   const fabAnim = useRef(new Animated.Value(1)).current;
+
+  // ── Fetch dynamic categories ─────────────────────────────
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const res = await api.get('/user/place/servicetype');
+        if (res.data?.success) {
+          setCategories([{ _id: "all", name: "All" }, ...res.data.data]);
+        }
+      } catch (err) {
+        console.error("Error fetching place categories:", err);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   // ── Filter places by category + search ──────────────────
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -48,7 +64,7 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
   };
 
   const filtered = places.filter((p) => {
-    const matchCat = activeCategory === "all" || p.category === activeCategory;
+    const matchCat = activeCategory === "all" || p.category?._id === activeCategory || p.category === activeCategory;
     const matchSearch = !searchQuery ||
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -232,26 +248,33 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.catBar}
       >
-        {PLACE_CATEGORIES.map((cat) => {
-          const active = activeCategory === cat.key;
+        {categories.map((cat) => {
+          const active = activeCategory === cat._id;
+          const uiMeta = PLACE_CATEGORIES.find(c => c.name === cat.name.toLowerCase()) || PLACE_CATEGORIES.find(c => c.name === "other");
+
           return (
             <TouchableOpacity
-              key={cat.key}
+              key={cat._id}
               style={[
                 styles.catPill,
-                active && { backgroundColor: cat.color },
-                !active && { backgroundColor: cat.bg },
+                active && { backgroundColor: uiMeta.color },
+                !active && { backgroundColor: uiMeta.bg },
               ]}
-              onPress={() => setActiveCategory(cat.key)}
+              onPress={() => setActiveCategory(cat._id)}
               activeOpacity={0.75}
             >
               <Ionicons
-                name={cat.icon}
+                name={uiMeta.icon}
                 size={13}
-                color={active ? "#FFF" : cat.color}
+                color={active ? "#FFF" : uiMeta.color}
               />
-              <Text style={[styles.catPillText, { color: active ? "#FFF" : cat.color }]}>
-                {cat.label}
+              <Text
+                style={[
+                  styles.catPillText,
+                  { color: active ? "#FFF" : uiMeta.color },
+                ]}
+              >
+                {cat.name}
               </Text>
             </TouchableOpacity>
           );
@@ -294,7 +317,7 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
         <View style={styles.statsBar}>
           <Text style={styles.statsText}>
             {filtered.length} {filtered.length === 1 ? "place" : "places"}{" "}
-            {activeCategory !== "all" && `· ${PLACE_CATEGORIES.find(c => c.key === activeCategory)?.label}`}
+            {activeCategory !== "all" && `· ${categories.find(c => c._id === activeCategory)?.name || ""}`}
           </Text>
         </View>
       )}

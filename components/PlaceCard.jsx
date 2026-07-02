@@ -50,7 +50,8 @@ export default function PlaceCard({ place, onLike, onSave }) {
   const fsVideoRef = useRef(null);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const cat = PLACE_CATEGORIES.find((c) => c.key === place.category) || PLACE_CATEGORIES[0];
+  const categoryName = place?.category?.name || "Other";
+  const cat = PLACE_CATEGORIES.find((c) => c.name === categoryName.toLowerCase()) || PLACE_CATEGORIES.find((c) => c.name === "other");
   const mediaCount = place.media?.length || 0;
 
   // ── Video helpers ────────────────────────────────────────
@@ -108,7 +109,7 @@ export default function PlaceCard({ place, onLike, onSave }) {
         {/* Category pill */}
         <View style={[styles.catPill, { backgroundColor: cat.bg }]}>
           <Ionicons name={cat.icon} size={11} color={cat.color} />
-          <Text style={[styles.catLabel, { color: cat.color }]}>{cat.label}</Text>
+          <Text style={[styles.catLabel, { color: cat.color }]}>{categoryName}</Text>
         </View>
       </TouchableOpacity>
 

@@ -465,14 +465,14 @@ export const MOCK_PLACES = [
 
 // Category metadata used by the filter pills UI
 export const PLACE_CATEGORIES = [
-  { key: "all",        label: "All",        icon: "grid-outline",         color: "#5A31F4", bg: "#F3EDFF" },
-  { key: "restaurant", label: "Food",       icon: "restaurant-outline",   color: "#E05E2B", bg: "#FEF0EB" },
-  { key: "cafe",       label: "Café",       icon: "cafe-outline",         color: "#7C4A03", bg: "#FEF3E2" },
-  { key: "bar",        label: "Bar",        icon: "wine-outline",         color: "#8B2BAF", bg: "#F5E8FF" },
-  { key: "lounge",     label: "Lounge",     icon: "musical-notes-outline",color: "#1A6BAF", bg: "#E8F3FF" },
-  { key: "park",       label: "Park",       icon: "leaf-outline",         color: "#1A7A3E", bg: "#E8F7EF" },
-  { key: "beach",      label: "Beach",      icon: "sunny-outline",        color: "#C08000", bg: "#FEF9E6" },
-  { key: "other",      label: "Other",      icon: "location-outline",     color: "#555",    bg: "#F0F0F0" },
+  { name: "all",        label: "All",        icon: "grid-outline",         color: "#5A31F4", bg: "#F3EDFF" },
+  { name: "restaurant", label: "Food",       icon: "restaurant-outline",   color: "#E05E2B", bg: "#FEF0EB" },
+  { name: "cafe",       label: "Café",       icon: "cafe-outline",         color: "#7C4A03", bg: "#FEF3E2" },
+  { name: "bar",        label: "Bar",        icon: "wine-outline",         color: "#8B2BAF", bg: "#F5E8FF" },
+  { name: "lounge",     label: "Lounge",     icon: "musical-notes-outline",color: "#1A6BAF", bg: "#E8F3FF" },
+  { name: "park",       label: "Park",       icon: "leaf-outline",         color: "#1A7A3E", bg: "#E8F7EF" },
+  { name: "beach",      label: "Beach",      icon: "sunny-outline",        color: "#C08000", bg: "#FEF9E6" },
+  { name: "other",      label: "Other",      icon: "location-outline",     color: "#555",    bg: "#F0F0F0" },
 ];
 
 export default MOCK_PLACES;

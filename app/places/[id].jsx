@@ -132,7 +132,8 @@ export default function PlaceDetailScreen() {
     );
   }
 
-  const cat = PLACE_CATEGORIES.find((c) => c.key === place?.category) || PLACE_CATEGORIES[0];
+  const categoryName = place?.category?.name || "Other";
+  const cat = PLACE_CATEGORIES.find((c) => c.name === categoryName.toLowerCase()) || PLACE_CATEGORIES.find((c) => c.name === "other");
   const mediaCount = place?.media?.length || 0;
 
   if (!place) {
@@ -425,7 +426,7 @@ export default function PlaceDetailScreen() {
               <Text style={styles.placeName}>{place.name}</Text>
               <View style={[styles.catBadge, { backgroundColor: cat.bg }]}>
                 <Ionicons name={cat.icon} size={12} color={cat.color} />
-                <Text style={[styles.catBadgeText, { color: cat.color }]}>{cat.label}</Text>
+                <Text style={[styles.catBadgeText, { color: cat.color }]}>{categoryName}</Text>
               </View>
             </View>
 

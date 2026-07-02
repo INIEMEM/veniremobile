@@ -38,6 +38,17 @@ export default function EditPlace() {
   const [existingMedia, setExistingMedia] = useState([]);
   // Newly picked local media to upload
   const [newMedia, setNewMedia] = useState([]);
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    api.get('/user/place/servicetype')
+      .then(res => {
+        if (res.data?.success) {
+          setCategories(res.data.data);
+        }
+      })
+      .catch(err => console.error("Error fetching categories:", err));
+  }, []);
 
   const [form, setForm] = useState({
     name: '',
@@ -60,7 +71,7 @@ export default function EditPlace() {
           const p = res.data.data;
           setForm({
             name: p.name || '',
-            category: p.category || 'restaurant',
+            category: p.category?._id || p.category || 'restaurant',
             description: p.description || '',
             address: p.address || '',
             city: p.city || '',
@@ -233,14 +244,14 @@ export default function EditPlace() {
         {/* ── Category ── */}
         <Text style={styles.label}>Category *</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-          {PLACE_CATEGORIES.map(cat => (
+          {categories.map(cat => (
             <TouchableOpacity
-              key={cat.key}
-              style={[styles.categoryChip, form.category === cat.key && styles.categoryChipActive]}
-              onPress={() => updateField('category', cat.key)}
+              key={cat._id}
+              style={[styles.categoryChip, form.category === cat._id && styles.categoryChipActive]}
+              onPress={() => updateField('category', cat._id)}
             >
-              <Text style={[styles.categoryChipText, form.category === cat.key && styles.categoryChipTextActive]}>
-                {cat.emoji} {cat.label}
+              <Text style={[styles.categoryChipText, form.category === cat._id && styles.categoryChipTextActive]}>
+                {cat.name}
               </Text>
             </TouchableOpacity>
           ))}

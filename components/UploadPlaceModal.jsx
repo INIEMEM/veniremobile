@@ -39,6 +39,22 @@ export default function UploadPlaceModal({ visible, onClose, onSuccess }) {
   const [rating, setRating] = useState(0);     // 1–5
   const [priceRange, setPriceRange] = useState("₦₦");
   const [tags, setTags] = useState("");         // comma-separated string
+  const [categories, setCategories] = useState([]);
+
+  React.useEffect(() => {
+    if (visible) {
+      api.get('/user/place/servicetype')
+        .then(res => {
+          if (res.data?.success) {
+            setCategories(res.data.data);
+            if (res.data.data.length > 0 && category === "restaurant") {
+              setCategory(res.data.data[0]._id);
+            }
+          }
+        })
+        .catch(err => console.error("Error fetching categories:", err));
+    }
+  }, [visible]);
 
   const resetForm = () => {
     setMedia([]);
@@ -292,30 +308,33 @@ export default function UploadPlaceModal({ visible, onClose, onSuccess }) {
                 <Text style={styles.label}>Category <Text style={styles.req}>*</Text></Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.categoryRow}>
-                    {PLACE_CATEGORIES.filter((c) => c.key !== "all").map((cat) => (
-                      <TouchableOpacity
-                        key={cat.key}
-                        style={[
-                          styles.catChip,
-                          { backgroundColor: category === cat.key ? cat.color : cat.bg },
-                        ]}
-                        onPress={() => setCategory(cat.key)}
-                      >
-                        <Ionicons
-                          name={cat.icon}
-                          size={13}
-                          color={category === cat.key ? "#FFF" : cat.color}
-                        />
-                        <Text
+                    {categories.map((cat) => {
+                      const uiMeta = PLACE_CATEGORIES.find(c => c.name === cat.name.toLowerCase()) || PLACE_CATEGORIES.find(c => c.name === "other");
+                      return (
+                        <TouchableOpacity
+                          key={cat._id}
                           style={[
-                            styles.catChipText,
-                            { color: category === cat.key ? "#FFF" : cat.color },
+                            styles.catChip,
+                            { backgroundColor: category === cat._id ? uiMeta.color : uiMeta.bg },
                           ]}
+                          onPress={() => setCategory(cat._id)}
                         >
-                          {cat.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                          <Ionicons
+                            name={uiMeta.icon}
+                            size={14}
+                            color={category === cat._id ? "#FFF" : uiMeta.color}
+                          />
+                          <Text
+                            style={[
+                              styles.catText,
+                              { color: category === cat._id ? "#FFF" : uiMeta.color },
+                            ]}
+                          >
+                            {cat.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </ScrollView>
               </View>
