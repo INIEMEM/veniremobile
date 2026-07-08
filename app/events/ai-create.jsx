@@ -167,6 +167,7 @@ function VenueCard({ venue, onSelect }) {
 // ─── Message Bubble ──────────────────────────────────────────────────────────
 function MessageBubble({
   msg,
+  isStreaming,
   onSelectVendor,
   onSelectVenue,
   onRequestDatePick,
@@ -183,6 +184,7 @@ function MessageBubble({
   onPublish,
   onSubmitEventNameSuggestion,
   onSubmitHashtags,
+  onSubmitDescription,
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(15)).current;
@@ -246,6 +248,10 @@ function MessageBubble({
 
   // ── AI-suggested event names (shown after eventType selected) ──────────────
   if (msg.type === 'event_name_suggestions') {
+    const [customTitle, setCustomTitle] = useState('');
+    const submitCustomTitle = () => {
+      if (customTitle.trim()) onSubmitEventNameSuggestion(msg.id, customTitle.trim());
+    };
     return (
       <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
         <View style={styles.aiAvatar}>
@@ -254,17 +260,88 @@ function MessageBubble({
         <View style={{ flex: 1 }}>
           <Text style={styles.aiText}>{msg.text}</Text>
           {!msg.answered && (
-            <View style={styles.eventTypeWrap}>
-              {(msg.suggestions || []).map((name, idx) => (
+            <View>
+              {/* Suggested chips */}
+              <View style={styles.eventTypeWrap}>
+                {(msg.suggestions || []).map((name, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[styles.eventTypeBtn, { backgroundColor: '#EDE9FE' }]}
+                    onPress={() => onSubmitEventNameSuggestion(msg.id, name)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.eventTypeText, { color: '#5A31F4' }]}>{name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {/* Custom title input */}
+              <Text style={styles.nameSuggestionOrLabel}>— or type your own —</Text>
+              <View style={styles.nameSuggestionInputRow}>
+                <TextInput
+                  style={styles.nameSuggestionInput}
+                  value={customTitle}
+                  onChangeText={setCustomTitle}
+                  placeholder="Enter your event title..."
+                  placeholderTextColor="#9CA3AF"
+                  returnKeyType="done"
+                  onSubmitEditing={submitCustomTitle}
+                />
                 <TouchableOpacity
-                  key={idx}
-                  style={[styles.eventTypeBtn, { backgroundColor: '#EDE9FE' }]}
-                  onPress={() => onSubmitEventNameSuggestion(msg.id, name)}
+                  style={[styles.nameSuggestionSubmitBtn, !customTitle.trim() && styles.nameSuggestionSubmitBtnDisabled]}
+                  onPress={submitCustomTitle}
+                  disabled={!customTitle.trim()}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.eventTypeText, { color: '#5A31F4' }]}>{name}</Text>
+                  <Ionicons name="checkmark" size={16} color="#FFF" />
                 </TouchableOpacity>
-              ))}
+              </View>
+            </View>
+          )}
+          {msg.answered && (
+            <View style={styles.datePickedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+              <Text style={styles.datePickedText}>{msg.answeredLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // ── Event description edit (non-blocking) ──────────────────────────────────
+  if (msg.type === 'event_description_edit') {
+    const [descText, setDescText] = useState(msg.defaultDescription || '');
+    const submitDesc = () => {
+      if (descText.trim()) onSubmitDescription(msg.id, descText.trim());
+    };
+    return (
+      <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.aiAvatar}>
+          <Ionicons name="sparkles" size={13} color="#FFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.aiText}>{msg.text}</Text>
+          {!msg.answered && (
+            <View style={styles.descEditWrap}>
+              <TextInput
+                style={styles.descEditInput}
+                value={descText}
+                onChangeText={setDescText}
+                placeholder="Describe your event..."
+                placeholderTextColor="#9CA3AF"
+                multiline
+                textAlignVertical="top"
+                numberOfLines={3}
+              />
+              <TouchableOpacity
+                style={[styles.descEditSubmitBtn, !descText.trim() && styles.descEditSubmitBtnDisabled]}
+                onPress={submitDesc}
+                disabled={!descText.trim()}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-circle-outline" size={15} color="#FFF" />
+                <Text style={styles.descEditSubmitText}>Confirm Description</Text>
+              </TouchableOpacity>
             </View>
           )}
           {msg.answered && (
@@ -1075,6 +1152,7 @@ export default function AICreateEvent() {
   // Stores pending date_picker/input_request info so agent_message can render the right bubble
   const pendingInputRef = useRef(null);
   const pendingDateFieldRef = useRef(null);
+  const nameSuggestionShownRef = useRef(false); // prevents showing name chips more than once per session
 
   const [messages, setMessages] = useState([createWelcomeMessage()]);
   const [input, setInput] = useState('');
@@ -1316,6 +1394,7 @@ export default function AICreateEvent() {
     setConversationHistory([]);
     setIsHistoryModalVisible(false);
     setChatId(null);
+    nameSuggestionShownRef.current = false;
     await openBackendChat();
   };
 
@@ -1325,6 +1404,7 @@ export default function AICreateEvent() {
     setMessages([createWelcomeMessage()]);
     setEventPayload(createDefaultPayload());
     setConversationHistory([]);
+    nameSuggestionShownRef.current = false;
     const loadedChat = await loadBackendChat(selectedChatId);
     if (!loadedChat) {
       restoreChatFromCache(chat);
@@ -1657,6 +1737,27 @@ export default function AICreateEvent() {
       case 'event_payload':
         setActiveActions([]);
         setEventPayload(prev => ({ ...prev, ...event.payload }));
+        // When the backend auto-generates name suggestions, inject tappable name chips
+        // AND a description editing bubble — both are non-blocking.
+        if (event.payload?.aiSuggestedEventNames?.length > 0 && !nameSuggestionShownRef.current) {
+          nameSuggestionShownRef.current = true;
+          appendMessage({
+            role: 'assistant',
+            type: 'event_name_suggestions',
+            text: 'Here are 3 suggested names for your event. Tap one or type your own:',
+            suggestions: event.payload.aiSuggestedEventNames,
+            answered: false,
+          });
+          // Inject description bubble immediately after name suggestions
+          const autoDesc = event.payload?.description || '';
+          appendMessage({
+            role: 'assistant',
+            type: 'event_description_edit',
+            text: 'Here is an auto-generated description. Edit it or confirm:',
+            defaultDescription: autoDesc,
+            answered: false,
+          });
+        }
         break;
 
       case 'ai_chat':
@@ -2001,6 +2102,18 @@ export default function AICreateEvent() {
     handleSend(
       label,
       `Added hashtags: ${label}\nStructured response: ${JSON.stringify({ hashtags: tags })}`
+    );
+  };
+
+  const handleSubmitDescription = (msgId, desc) => {
+    if (!desc) return;
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, answered: true, answeredLabel: 'Description confirmed' } : m
+    ));
+    setEventPayload(prev => ({ ...prev, description: desc }));
+    handleSend(
+      'Description confirmed',
+      `Updated event description to: ${desc}\nStructured response: ${JSON.stringify({ description: desc })}`
     );
   };
 
@@ -2511,6 +2624,7 @@ export default function AICreateEvent() {
               onPublish={handlePublish}
               onSubmitEventNameSuggestion={handleSubmitEventNameSuggestion}
               onSubmitHashtags={handleSubmitHashtags}
+              onSubmitDescription={handleSubmitDescription}
             />
           ))}
 
@@ -3490,6 +3604,75 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   advancedSubmitText: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 12,
+    color: '#FFF',
+  },
+
+  // ── Name Suggestion & Description Edit ──
+  nameSuggestionOrLabel: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 11,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  nameSuggestionInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  nameSuggestionInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 12,
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 13,
+    color: '#1F2937',
+  },
+  nameSuggestionSubmitBtn: {
+    width: 44,
+    backgroundColor: '#5A31F4',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nameSuggestionSubmitBtnDisabled: {
+    backgroundColor: '#C4B5FD',
+  },
+  descEditWrap: {
+    marginTop: 10,
+    gap: 8,
+  },
+  descEditInput: {
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 12,
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 13,
+    color: '#1F2937',
+    minHeight: 80,
+  },
+  descEditSubmitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#10B981',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  descEditSubmitBtnDisabled: {
+    backgroundColor: '#6EE7B7',
+  },
+  descEditSubmitText: {
     fontFamily: 'Poppins_700Bold',
     fontSize: 12,
     color: '#FFF',
