@@ -38,6 +38,12 @@
           "cameraPermission": "Allow Venire to use your camera to scan event tickets."
         }
       ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Venire to access your microphone to record voice notes in disputes."
+        }
+      ],
       "expo-secure-store"
     ],
     "extra": {

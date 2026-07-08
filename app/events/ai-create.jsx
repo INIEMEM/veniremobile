@@ -39,11 +39,18 @@ const PROMPT_CHIPS = [
   '🏋️ Fitness bootcamp',
 ];
 
+const getTimeGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+};
+
 const createWelcomeMessage = () => ({
   id: '1',
   role: 'assistant',
   type: 'agent_message',
-  text: "Hi! I'm Venire AI ✨\n\nTell me about the event you want to create. I'll generate the title, description, find venues, suggest vendors, and build your full schedule automatically.",
+  text: `${getTimeGreeting()}! 👋 I'm Ven, your Venire AI Event Planning assistant. I'm here to help you plan amazing events, find vendors, and bring your vision to life. What type of event are you planning today?`,
 });
 
 const createDefaultPayload = () => ({
@@ -174,6 +181,8 @@ function MessageBubble({
   onSubmitCurrency,
   onSubmitRawText,
   onPublish,
+  onSubmitEventNameSuggestion,
+  onSubmitHashtags,
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(15)).current;
@@ -184,7 +193,9 @@ function MessageBubble({
   const [ticketName, setTicketName] = useState('Regular');
   const [ticketPrice, setTicketPrice] = useState('');
   const [ticketCapacity, setTicketCapacity] = useState('');
+  const [ticketList, setTicketList] = useState([]);
   const [booleanAmount, setBooleanAmount] = useState('');
+  const [hashtagInput, setHashtagInput] = useState('');
 
   useEffect(() => {
     Animated.parallel([
@@ -199,12 +210,80 @@ function MessageBubble({
     return <AgentActionCard tool={msg.tool} content={msg.text} done={msg.done} />;
   }
 
+  // ── Event type options from SSE (event_type_options) ──────────────────────
+  if (msg.type === 'interactive_input' && msg.control === 'event_type_options') {
+    return (
+      <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.aiAvatar}>
+          <Ionicons name="sparkles" size={13} color="#FFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.aiText}>{msg.text}</Text>
+          {!msg.answered && (
+            <View style={styles.eventTypeWrap}>
+              {(msg.options || []).map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={styles.eventTypeBtn}
+                  onPress={() => onSubmitEventType(msg.id, opt.label || opt.value)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.eventTypeText}>{opt.label || opt.value}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {msg.answered && (
+            <View style={styles.datePickedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+              <Text style={styles.datePickedText}>{msg.answeredLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // ── AI-suggested event names (shown after eventType selected) ──────────────
+  if (msg.type === 'event_name_suggestions') {
+    return (
+      <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.aiAvatar}>
+          <Ionicons name="sparkles" size={13} color="#FFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.aiText}>{msg.text}</Text>
+          {!msg.answered && (
+            <View style={styles.eventTypeWrap}>
+              {(msg.suggestions || []).map((name, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[styles.eventTypeBtn, { backgroundColor: '#EDE9FE' }]}
+                  onPress={() => onSubmitEventNameSuggestion(msg.id, name)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.eventTypeText, { color: '#5A31F4' }]}>{name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {msg.answered && (
+            <View style={styles.datePickedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+              <Text style={styles.datePickedText}>{msg.answeredLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
   if (
     msg.type === 'agent_message' &&
     !msg.answered &&
-    /what type of event are you planning/i.test(msg.text || '')
+    (/what type of event are you planning/i.test(msg.text || '') || /I'm here to help you plan/i.test(msg.text || ''))
   ) {
-    const eventTypes = ['Wedding', 'Birthday', 'Tech mixer', 'Concert', 'Conference', 'Party'];
+    const eventTypes = ['Wedding', 'Birthday', 'Tech Mixer', 'Concert', 'Conference', 'Party', 'Club Event', 'Seminar'];
 
     return (
       <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -328,6 +407,14 @@ function MessageBubble({
   }
 
   if (msg.type === 'interactive_input' && msg.control === 'advanced_event_fields') {
+    const submitHashtags = () => {
+      const raw = hashtagInput.trim();
+      if (raw) {
+        onSubmitHashtags(msg.id, raw);
+      } else {
+        onSubmitRawText(msg.id, 'Skip these', 'Skip these');
+      }
+    };
     return (
       <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
         <View style={styles.aiAvatar}>
@@ -336,15 +423,29 @@ function MessageBubble({
         <View style={{ flex: 1 }}>
           <Text style={styles.aiText}>{msg.text}</Text>
           {!msg.answered && (
-            <View style={styles.mediaChoiceWrap}>
-              <TouchableOpacity
-                style={styles.mediaSkipBtn}
-                onPress={() => onSubmitRawText(msg.id, 'Skip these', 'Skip these')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="arrow-forward-circle-outline" size={15} color="#5A31F4" />
-                <Text style={styles.mediaSkipText}>Skip for now</Text>
-              </TouchableOpacity>
+            <View style={styles.advancedFieldsWrap}>
+              <Text style={styles.advancedFieldLabel}>Add Hashtags (optional)</Text>
+              <View style={styles.hashtagInputRow}>
+                <TextInput
+                  style={styles.hashtagInput}
+                  value={hashtagInput}
+                  onChangeText={setHashtagInput}
+                  placeholder="#party #fun #abuja"
+                  placeholderTextColor="#9CA3AF"
+                  returnKeyType="done"
+                  onSubmitEditing={submitHashtags}
+                />
+              </View>
+              <View style={styles.advancedBtnRow}>
+                <TouchableOpacity
+                  style={styles.advancedSubmitBtn}
+                  onPress={submitHashtags}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="checkmark" size={14} color="#FFF" />
+                  <Text style={styles.advancedSubmitText}>{hashtagInput.trim() ? 'Add Hashtags' : 'Skip'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
           {msg.answered && (
@@ -616,30 +717,48 @@ function MessageBubble({
 
   if (msg.type === 'interactive_input' && msg.control === 'ticket_builder') {
     const submitFreeEntry = () => {
-      onSubmitTicketing(msg.id, {
-        isTicket: false,
-        ticketAmount: 0,
-        tickets: [],
-      });
+      onSubmitTicketing(msg.id, { isTicket: false, ticketAmount: 0, tickets: [] });
     };
 
-    const submitPaidTicket = (priceValue, capacityValue = ticketCapacity, nameValue = ticketName) => {
-      const cleanPrice = String(priceValue || '').replace(/[^0-9]/g, '');
+    const addTicketToList = () => {
+      const cleanPrice = ticketPrice.replace(/[^0-9]/g, '');
       if (!cleanPrice) return;
-      const cleanCapacity = String(capacityValue || '').replace(/[^0-9]/g, '');
-      const finalName = nameValue?.trim() || 'Regular';
+      const cleanCapacity = ticketCapacity.replace(/[^0-9]/g, '');
+      const finalName = ticketName?.trim() || 'Regular';
       const ticket = {
         name: finalName,
         price: cleanPrice,
-        capacity: cleanCapacity || '0',
+        capacity: cleanCapacity || '50',
         type: finalName.toLowerCase().includes('vip') ? 'vip' : 'regular',
         isInviteOnly: false,
       };
+      setTicketList(prev => [...prev, ticket]);
+      setTicketName('Regular');
+      setTicketPrice('');
+      setTicketCapacity('');
+    };
 
+    const finishTickets = () => {
+      if (ticketList.length === 0 && !ticketPrice) return;
+      // If there's a pending ticket in the form, add it first
+      let finalList = [...ticketList];
+      if (ticketPrice) {
+        const cleanPrice = ticketPrice.replace(/[^0-9]/g, '');
+        if (cleanPrice) {
+          finalList.push({
+            name: ticketName?.trim() || 'Regular',
+            price: cleanPrice,
+            capacity: ticketCapacity.replace(/[^0-9]/g, '') || '50',
+            type: (ticketName || '').toLowerCase().includes('vip') ? 'vip' : 'regular',
+            isInviteOnly: false,
+          });
+        }
+      }
+      if (finalList.length === 0) return;
       onSubmitTicketing(msg.id, {
         isTicket: true,
-        ticketAmount: Number(cleanPrice) || 0,
-        tickets: [ticket],
+        ticketAmount: Number(finalList[0].price) || 0,
+        tickets: finalList,
       });
     };
 
@@ -652,46 +771,46 @@ function MessageBubble({
           <Text style={styles.aiText}>{msg.text}</Text>
           {!msg.answered && (
             <View style={styles.ticketBuilderWrap}>
-              <TouchableOpacity
-                style={styles.ticketFreeBtn}
-                onPress={submitFreeEntry}
-                activeOpacity={0.8}
-              >
+              <TouchableOpacity style={styles.ticketFreeBtn} onPress={submitFreeEntry} activeOpacity={0.8}>
                 <Ionicons name="pricetag-outline" size={14} color="#15803D" />
                 <Text style={styles.ticketFreeText}>Free Entry</Text>
               </TouchableOpacity>
 
-              <View style={styles.ticketQuickRow}>
-                {[3000, 5000, 10000].map((amount) => (
-                  <TouchableOpacity
-                    key={amount}
-                    style={styles.ticketQuickBtn}
-                    onPress={() => submitPaidTicket(amount, '')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.ticketQuickText}>₦{amount.toLocaleString()}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {/* Added tickets list */}
+              {ticketList.length > 0 && (
+                <View style={styles.addedTicketsList}>
+                  {ticketList.map((t, i) => (
+                    <View key={i} style={styles.addedTicketRow}>
+                      <Ionicons name="ticket-outline" size={13} color="#5A31F4" />
+                      <Text style={styles.addedTicketText}>{t.name} — ₦{Number(t.price).toLocaleString()} (cap: {t.capacity})</Text>
+                      <TouchableOpacity onPress={() => setTicketList(prev => prev.filter((_, idx) => idx !== i))}>
+                        <Ionicons name="close-circle" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
 
+              <Text style={styles.ticketBuilderLabel}>Add a ticket tier:</Text>
+              <Text style={styles.ticketBuilderHint}>Format: Name – Price – Capacity (e.g. Regular – 3000 – 200)</Text>
               <TextInput
                 style={styles.ticketInput}
                 value={ticketName}
                 onChangeText={setTicketName}
-                placeholder="Ticket name"
+                placeholder="Ticket name (e.g. Regular, VIP)"
                 placeholderTextColor="#9CA3AF"
               />
               <View style={styles.ticketInputRow}>
                 <TextInput
-                  style={styles.ticketInput}
+                  style={[styles.ticketInput, { flex: 1 }]}
                   value={ticketPrice}
                   onChangeText={(text) => setTicketPrice(text.replace(/[^0-9]/g, ''))}
-                  placeholder="Price"
+                  placeholder="Price (₦)"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="number-pad"
                 />
                 <TextInput
-                  style={styles.ticketInput}
+                  style={[styles.ticketInput, { flex: 1, marginLeft: 8 }]}
                   value={ticketCapacity}
                   onChangeText={(text) => setTicketCapacity(text.replace(/[^0-9]/g, ''))}
                   placeholder="Capacity"
@@ -699,17 +818,26 @@ function MessageBubble({
                   keyboardType="number-pad"
                 />
               </View>
-              <TouchableOpacity
-                style={[
-                  styles.ticketSubmitBtn,
-                  !ticketPrice && styles.ticketSubmitBtnDisabled,
-                ]}
-                onPress={() => submitPaidTicket(ticketPrice)}
-                disabled={!ticketPrice}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.ticketSubmitText}>Use this ticket</Text>
-              </TouchableOpacity>
+              <View style={styles.ticketActionRow}>
+                <TouchableOpacity
+                  style={[styles.ticketAddBtn, !ticketPrice && styles.ticketSubmitBtnDisabled]}
+                  onPress={addTicketToList}
+                  disabled={!ticketPrice}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="add-circle-outline" size={15} color="#FFF" />
+                  <Text style={styles.ticketAddBtnText}>Add Ticket</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.ticketDoneBtn, (ticketList.length === 0 && !ticketPrice) && styles.ticketSubmitBtnDisabled]}
+                  onPress={finishTickets}
+                  disabled={ticketList.length === 0 && !ticketPrice}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={15} color="#FFF" />
+                  <Text style={styles.ticketDoneBtnText}>Done</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
           {msg.answered && (
@@ -1561,6 +1689,20 @@ export default function AICreateEvent() {
         }
         break;
 
+      case 'event_type_options':
+        // Backend sends tappable event type options
+        setActiveActions([]);
+        appendMessage({
+          role: 'assistant',
+          type: 'interactive_input',
+          control: 'event_type_options',
+          field: 'eventType',
+          text: 'What type of event are you planning?',
+          options: event.options || [],
+          answered: false,
+        });
+        break;
+
       case 'category_suggestions':
         setActiveActions([]);
         pendingInputRef.current = {
@@ -1830,6 +1972,35 @@ export default function AICreateEvent() {
     handleSend(
       eventType,
       `Selected event type: ${eventType}\nStructured response: ${JSON.stringify(payload)}`
+    );
+  };
+
+  const handleSubmitEventNameSuggestion = (msgId, name) => {
+    if (!name) return;
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, answered: true, answeredLabel: name } : m
+    ));
+    setEventPayload(prev => ({ ...prev, name }));
+    handleSend(
+      name,
+      `Selected event name: ${name}\nStructured response: ${JSON.stringify({ name })}`
+    );
+  };
+
+  const handleSubmitHashtags = (msgId, raw) => {
+    // Parse hashtags from raw text e.g. "#party #fun venue"
+    const tags = raw
+      .split(/[\s,]+/)
+      .map(t => (t.startsWith('#') ? t : `#${t}`))
+      .filter(t => t.length > 1);
+    const label = tags.length > 0 ? tags.join(' ') : 'Skipped';
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, answered: true, answeredLabel: label } : m
+    ));
+    setEventPayload(prev => ({ ...prev, hashtags: tags }));
+    handleSend(
+      label,
+      `Added hashtags: ${label}\nStructured response: ${JSON.stringify({ hashtags: tags })}`
     );
   };
 
@@ -2338,6 +2509,8 @@ export default function AICreateEvent() {
               onSubmitCurrency={handleSubmitCurrency}
               onSubmitRawText={handleSubmitRawText}
               onPublish={handlePublish}
+              onSubmitEventNameSuggestion={handleSubmitEventNameSuggestion}
+              onSubmitHashtags={handleSubmitHashtags}
             />
           ))}
 
@@ -3211,4 +3384,115 @@ const styles = StyleSheet.create({
   datePickerTitle: { fontFamily: 'Poppins_600SemiBold', fontSize: 16, color: '#111827' },
   datePickerCancel: { fontFamily: 'Poppins_500Medium', fontSize: 15, color: '#9CA3AF' },
   datePickerConfirm: { fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#7C3AED' },
+
+  // ── Multi-ticket builder ──
+  addedTicketsList: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 10,
+    padding: 8,
+    gap: 6,
+  },
+  addedTicketRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  addedTicketText: {
+    flex: 1,
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 11,
+    color: '#374151',
+  },
+  ticketBuilderLabel: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 12,
+    color: '#374151',
+    marginTop: 6,
+  },
+  ticketBuilderHint: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 10,
+    color: '#9CA3AF',
+    marginBottom: 4,
+  },
+  ticketActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  ticketAddBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#7C3AED',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  ticketAddBtnText: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 12,
+    color: '#FFF',
+  },
+  ticketDoneBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#10B981',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  ticketDoneBtnText: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 12,
+    color: '#FFF',
+  },
+
+  // ── Hashtag / Advanced fields ──
+  advancedFieldsWrap: {
+    marginTop: 10,
+    gap: 8,
+  },
+  advancedFieldLabel: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 12,
+    color: '#374151',
+  },
+  hashtagInputRow: {
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 12,
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  hashtagInput: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 13,
+    color: '#1F2937',
+    paddingVertical: 4,
+  },
+  advancedBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  advancedSubmitBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#5A31F4',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  advancedSubmitText: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 12,
+    color: '#FFF',
+  },
 });
+

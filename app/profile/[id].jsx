@@ -24,6 +24,7 @@ import ExploreEvents from "../../components/ExploreEvents";
 import { useAuth } from "../../context/AuthContext";
 // import CustomKeyboardInput from '../../../components/CustomKeyboardInput';
 import CustomKeyboardInput from "../../components/CustomKeyboardInput";
+import RaiseDisputeModal from "../../components/RaiseDisputeModal";
 const { width } = Dimensions.get("window");
 
 export default function ProfilePage() {
@@ -42,6 +43,7 @@ export default function ProfilePage() {
   
   const isMyProfile = authUser?._id === id || String(authUser?._id) === String(id);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
 
   // Followers / Following Modal States
   const [followModalVisible, setFollowModalVisible] = useState(false);
@@ -451,10 +453,18 @@ export default function ProfilePage() {
               <TouchableOpacity style={styles.heroIconBtn} onPress={() => router.push('/profile/settings')}>
                 <Ionicons name="settings-outline" size={22} color="#FFF" />
               </TouchableOpacity>
+              <TouchableOpacity style={styles.heroIconBtn} onPress={() => router.push('/disputes')}>
+                <Ionicons name="shield-half-outline" size={22} color="#FFF" />
+              </TouchableOpacity>
               <TouchableOpacity style={styles.heroIconBtn} onPress={handleLogout} disabled={isLoggingOut}>
                 <Ionicons name="log-out-outline" size={22} color="#FFF" />
               </TouchableOpacity>
             </View>
+          )}
+          {!isMyProfile && (
+            <TouchableOpacity style={styles.heroIconBtn} onPress={() => setReportModalVisible(true)}>
+              <Ionicons name="warning-outline" size={22} color="#FF3B30" />
+            </TouchableOpacity>
           )}
         </View>
         <View style={styles.avatarWrapper}>
@@ -923,6 +933,16 @@ export default function ProfilePage() {
         )}
       </View>
     </Modal>
+      <RaiseDisputeModal 
+        visible={reportModalVisible} 
+        onClose={(success) => {
+          setReportModalVisible(false);
+          if (success) {
+            router.push('/disputes');
+          }
+        }} 
+        reportedUserId={id}
+      />
     </View>
   );
 }
