@@ -1,65 +1,20 @@
-import React, { useEffect, useRef } from "react";
-import { View, Text, Animated, StyleSheet, Dimensions } from "react-native";
+import React from "react";
+import { View, Text, StyleSheet, Dimensions } from "react-native";
+import VenireLogo from "./VenireLogo";
 
 const { width } = Dimensions.get("window");
 
 export default function CustomLoader() {
-  // 🔹 Reduced initial positions to make motion tighter
-  const move1 = useRef(new Animated.ValueXY({ x: -10, y: -10 })).current;
-  const move2 = useRef(new Animated.ValueXY({ x: 10, y: 10 })).current;
-
-  useEffect(() => {
-    const loopAnimation = () => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.parallel([
-            Animated.timing(move1, {
-              toValue: { x: 10, y: 10 }, // smaller range
-              duration: 600,
-              useNativeDriver: true,
-            }),
-            Animated.timing(move2, {
-              toValue: { x: -10, y: -10 },
-              duration: 600,
-              useNativeDriver: true,
-            }),
-          ]),
-          Animated.parallel([
-            Animated.timing(move1, {
-              toValue: { x: -10, y: -10 },
-              duration: 600,
-              useNativeDriver: true,
-            }),
-            Animated.timing(move2, {
-              toValue: { x: 10, y: 10 },
-              duration: 600,
-              useNativeDriver: true,
-            }),
-          ]),
-        ])
-      ).start();
-    };
-
-    loopAnimation();
-  }, []);
-
   return (
     <View style={styles.overlay}>
       <View style={styles.loaderBox}>
-        <View style={styles.animationContainer}>
-          <Animated.View
-            style={[styles.square, 
-              { transform: move1.getTranslateTransform() }
-            
-            ]}
-          />
-          <Animated.View
-            style={[styles.square, 
-              { transform: move2.getTranslateTransform() }
-            
-            ]}
-          />
-        </View>
+        <VenireLogo
+          size={60}
+          showText={false}
+          animate={true}
+          showSpinner={true}
+          textColor="#5A31F4"
+        />
         <Text style={styles.text}>Please wait...</Text>
       </View>
     </View>
@@ -69,7 +24,7 @@ export default function CustomLoader() {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(0,0,0,0.35)",
     justifyContent: "center",
     alignItems: "center",
     position: "absolute",
@@ -78,34 +33,22 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
   loaderBox: {
-    width: width * 0.45,
-    height: 105,
+    width: width * 0.52,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
     backgroundColor: "#fff",
-    borderRadius: 12,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  animationContainer: {
-    flexDirection: "row",
-    position: "relative",
-    marginBottom: 10,
-  },
-  square: {
-    width: 15,
-    height: 15,
-    backgroundColor: "#5A31F4",
-    borderRadius: 3,
-    marginHorizontal: 4, // slightly closer
-    marginBottom : 10,
+    shadowColor: "#5A31F4",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 10,
   },
   text: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "500",
-    fontFamily: "Poppins_500Medium",
+    marginTop: 10,
+    fontSize: 13,
+    color: "#555",
+    fontFamily: "Poppins_400Regular",
   },
 });

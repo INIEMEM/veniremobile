@@ -80,9 +80,6 @@ export default function EventCategoryBoxes({ category }) {
         >
           {category.name}
         </Text>
-        {category.totalEvents > 0 && (
-          <Text style={styles.count}>{category.totalEvents} events</Text>
-        )}
       </View>
     </TouchableOpacity>
   )

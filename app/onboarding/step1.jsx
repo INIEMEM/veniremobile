@@ -78,7 +78,7 @@ export default function Step1() {
       ]}
     >
       <ImageBackground
-        source={require("../../assets/step1.png")}
+        source={require("../../assets/onboarding1.jpg")}
         style={styles.background}
         resizeMode="cover"
       >
@@ -113,7 +113,7 @@ export default function Step1() {
           ]}
         >
           <Text style={styles.title}>
-            Discover and Explore Events of Interests
+            Discover Events
           </Text>
           <Text style={styles.caption}>
             Explore events that match your vibe and meet people of like minds:

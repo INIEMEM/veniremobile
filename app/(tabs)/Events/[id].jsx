@@ -227,6 +227,7 @@ export default function EventDetailsScreen() {
 
       if (!animations[event._id]) animations[event._id] = new Animated.Value(1);
 
+      // Optimistic Update
       Animated.sequence([
         Animated.timing(animations[event._id], {
           toValue: 1.5,
@@ -240,24 +241,37 @@ export default function EventDetailsScreen() {
         }),
       ]).start();
 
-      await api.post(
-        endpoint,
-        { eventId: event._id },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
       setEvent((prev) => ({
         ...prev,
         hasLiked: !prev.hasLiked,
         totalLikes: prev.hasLiked
-          ? (prev.totalLikes || 0) - 1
+          ? Math.max((prev.totalLikes || 0) - 1, 0)
           : (prev.totalLikes || 0) + 1,
       }));
 
-      Toast.show({
-        type: "success",
-        text1: event.hasLiked ? "Unliked" : "Liked",
-      });
+      try {
+        await api.post(
+          endpoint,
+          { eventId: event._id },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        // Toast.show({
+        //   type: "success",
+        //   text1: event.hasLiked ? "Unliked" : "Liked",
+        // });
+      } catch (apiError) {
+        // Revert on failure
+        setEvent((prev) => ({
+          ...prev,
+          hasLiked: !prev.hasLiked, // revert back
+          totalLikes: prev.hasLiked
+            ? Math.max((prev.totalLikes || 0) - 1, 0)
+            : (prev.totalLikes || 0) + 1, // Note prev.hasLiked is the original value since we are reverting from the current
+        }));
+        
+        throw apiError;
+      }
+
     } catch (error) {
       console.error("Error liking event:", error);
       Toast.show({

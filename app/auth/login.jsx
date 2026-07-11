@@ -40,7 +40,7 @@ export default function LoginScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState("");
-  const { login, logout } = useAuth();
+  const { login, loginWithGoogle, logout } = useAuth();
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
   const { user: clerkUser, isLoaded } = useUser();
   const { isSignedIn, signOut, getToken } = useClerkAuth();
@@ -183,6 +183,9 @@ export default function LoginScreen() {
       if (createdSessionId) {
         await setActive({ session: createdSessionId });
 
+        // Give Clerk session time to fully settle before reading user/token
+        await new Promise(resolve => setTimeout(resolve, 800));
+
         let activeUser = clerk.user;
         if (!activeUser) {
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -210,60 +213,70 @@ export default function LoginScreen() {
           clerkUserId 
         });
 
-        if (!userEmail) {
-          console.warn("Could not retrieve user email from Google. Continuing with available Clerk data.");
-        }
-
+        // Get the Clerk session JWT — try multiple sources
         const getClerkSessionToken = async () => {
-          const tokenGetters = [
-            getToken,
-            clerk.session?.getToken?.bind(clerk.session),
-            session?.getToken?.bind(session),
-          ].filter(Boolean);
+          // Try clerk.session first (most reliable after setActive)
+          const sources = [
+            () => clerk.session?.getToken(),
+            () => getToken(),
+            () => session?.getToken?.(),
+          ];
 
-          for (const tokenGetter of tokenGetters) {
+          for (const src of sources) {
             try {
-              const token = await tokenGetter();
-              if (token) return token;
+              const t = await src();
+              if (t) {
+                console.log("Clerk session token retrieved successfully");
+                return t;
+              }
             } catch (_) {}
           }
-
           return null;
         };
 
         const clerkSessionToken = await getClerkSessionToken();
+        console.log("token:", clerkSessionToken ? "retrieved" : "null");
 
         if (!clerkSessionToken) {
-          console.warn("Could not retrieve Clerk session token for Google login.");
+          console.warn("Could not retrieve Clerk session token — backend verification may fail.");
         }
 
-        // Send user data to your backend
+        // Send user data to your backend — exact fields required
         const googleLoginPayload = {
-          email: userEmail || "",
-          firstname: userFirstName || "",
-          lastname: userLastName || "",
-          firstName: userFirstName || "",
-          lastName: userLastName || "",
-          clerkId: clerkUserId || "",
-          googleId: clerkUserId || "",
-          sessionId: createdSessionId,
+          userEmail: userEmail || "",
+          userFirstName: userFirstName || "",
+          userLastName: userLastName || "",
+          userId: clerkUserId || "",
+          userProfileImage: activeUser?.imageUrl || clerkUserId || "",
+          // Include Clerk token in the body as well in case the backend reads from body
           clerkToken: clerkSessionToken || "",
-          clerkJwt: clerkSessionToken || "",
-          provider: "google",
-          authProvider: "clerk",
+          sessionToken: clerkSessionToken || "",
         };
 
-        const response = await api.post("/auth/google/login", googleLoginPayload, {
+        // Pass the Clerk JWT in the Authorization header so backend can verify identity
+        const response = await api.post("/auth/cleck/google/login", googleLoginPayload, {
           skipAuth: true,
+          headers: clerkSessionToken
+            ? { Authorization: `Bearer ${clerkSessionToken}` }
+            : {},
         });
 
-        const token = response.data?.token;
+        let token = response.data?.token;
+
+        // If the backend signals the user needs to register (new user)
+        if (!token && response.data?.needsRegistration) {
+          const registerResponse = await api.post("/auth/register/google", googleLoginPayload, {
+            skipAuth: true,
+          });
+          token = registerResponse.data?.token;
+        }
+
         if (!token) {
           throw new Error("No token returned from backend");
         }
 
-        // Use your login function to save token and fetch user details
-        await login(token);
+        // Use loginWithGoogle to save token and fetch google user profile
+        await loginWithGoogle(token);
 
         Toast.show({
           type: "success",

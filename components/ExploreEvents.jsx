@@ -302,14 +302,7 @@ export default function ExploreEvents({
         return;
       }
 
-      const endpoint = isLiked ? "/event/unlike" : "/event/like";
-
-      await api.post(
-        endpoint,
-        { eventId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
+      // Optimistic Update
       setEvents((prev) =>
         prev.map((event) => {
           if (event._id === eventId) {
@@ -330,25 +323,41 @@ export default function ExploreEvents({
             return {
               ...event,
               hasLiked: !isLiked,
-              totalLikes: isLiked ? (event.totalLikes || 0) - 1 : (event.totalLikes || 0) + 1,
+              totalLikes: isLiked ? Math.max((event.totalLikes || 0) - 1, 0) : (event.totalLikes || 0) + 1,
             };
           }
           return event;
         })
       );
 
-      // Toast.show({
-      //   type: "success",
-      //   text1: isLiked ? "Unliked" : "Liked",
-      // });
+      const endpoint = isLiked ? "/event/unlike" : "/event/like";
+
+      try {
+        await api.post(
+          endpoint,
+          { eventId },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } catch (apiError) {
+        // Revert the optimistic update on failure
+        setEvents((prev) =>
+          prev.map((event) => {
+            if (event._id === eventId) {
+              return {
+                ...event,
+                hasLiked: isLiked, // Revert to original
+                totalLikes: isLiked ? (event.totalLikes || 0) : Math.max((event.totalLikes || 0) - 1, 0), // Revert to original count
+              };
+            }
+            return event;
+          })
+        );
+        throw apiError; // Throw to the outer catch
+      }
+
     } catch (error) {
       console.error("Error liking event:", error);
-      // Toast.show({
-      //   type: "error",
-      //   text1: "Action failed",
-      //   text2: error.response?.data?.message || "Please try again",
-      // });
-      toast.error(error.response?.data?.error)
+      toast.error(error.response?.data?.error || "Failed to like event");
     }
   };
 

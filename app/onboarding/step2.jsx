@@ -68,7 +68,7 @@ export default function Step2() {
       ]}
     >
       <ImageBackground
-        source={require("../../assets/step2.png")}
+        source={require("../../assets/onboarding2.jpg")}
         style={styles.background}
         resizeMode="cover"
       >
@@ -104,10 +104,9 @@ export default function Step2() {
             { transform: [{ translateX: leftSlide }], opacity: fadeIn },
           ]}
         >
-          <Text style={styles.title}>Discover and Explore Events of Interests</Text>
+          <Text style={styles.title}>Discover Key Places</Text>
           <Text style={styles.caption}>
-            Explore events that match your vibe and meet people of like minds:
-            from concerts to tech meetups, weddings, and more.
+            Explore stunning venues and key locations for your next event, from vibrant indoor spaces to majestic outdoors.
           </Text>
         </Animated.View>
 

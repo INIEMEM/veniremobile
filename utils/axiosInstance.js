@@ -17,6 +17,9 @@ const PUBLIC_ENDPOINTS = [
   '/auth/forgot',
   '/auth/reset',
   '/auth/google/login',
+  '/auth/cleck/google/login',  // Clerk-based Google login
+  '/auth/register/google',     // Google registration
+  '/auth/google/profile',      // Google profile
   '/event/explore',  // Public explore endpoint
   '/place/explore',  // Public explore endpoint for places
 ];

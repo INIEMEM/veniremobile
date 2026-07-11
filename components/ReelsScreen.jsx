@@ -432,14 +432,7 @@ export default function ReelsScreen({
           return;
         }
 
-        const endpoint = event?.hasLiked ? "/event/unlike" : "/event/like";
-
-        await api.post(
-          endpoint,
-          { eventId: event._id },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-
+        // Optimistic Update
         const anim = getLikeAnim(event._id);
         Animated.sequence([
           Animated.spring(anim, {
@@ -460,6 +453,27 @@ export default function ReelsScreen({
             ? Math.max((current.totalLikes || current.likes?.length || 0) - 1, 0)
             : (current.totalLikes || current.likes?.length || 0) + 1,
         }));
+
+        const endpoint = event?.hasLiked ? "/event/unlike" : "/event/like";
+
+        try {
+          await api.post(
+            endpoint,
+            { eventId: event._id },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        } catch (apiError) {
+          // Revert on error
+          updateEvent(event._id, (current) => ({
+            ...current,
+            hasLiked: event.hasLiked,
+            totalLikes: event.hasLiked
+              ? (current.totalLikes || current.likes?.length || 0) + 1
+              : Math.max((current.totalLikes || current.likes?.length || 0) - 1, 0),
+          }));
+          throw apiError;
+        }
+
       } catch (error) {
         console.error("Error liking reel event:", error);
         toast.error(error.response?.data?.error || "Could not update like");

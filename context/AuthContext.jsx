@@ -60,6 +60,45 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // ✅ Google Login function: Save token, fetch google profile, save user
+  const loginWithGoogle = async (token) => {
+    try {
+      // Save token in storage
+      await AsyncStorage.setItem("token", token);
+      await AsyncStorage.removeItem("isGuest");
+      setToken(token);
+
+      // Try fetching google profile first, fallback to /auth/me
+      let userData = null;
+      try {
+        const profileRes = await api.get("/auth/google/profile", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        userData = profileRes.data?.data || profileRes.data?.user;
+      } catch (profileError) {
+        console.log("Google profile fetch failed, falling back to /auth/me:", profileError.message);
+      }
+
+      // Fallback to /auth/me if google profile didn't work
+      if (!userData) {
+        const res = await api.get("/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        userData = res.data?.data;
+      }
+
+      if (!userData) throw new Error("No user data returned from server");
+
+      // Save user to AsyncStorage
+      await AsyncStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      console.log("Google user data set successfully:", userData);
+    } catch (error) {
+      console.error("Error fetching Google user details:", error);
+      throw error;
+    }
+  };
+
   // ✅ Logout function - handles both regular and Google logout
   const logout = async () => {
     try {
@@ -109,6 +148,7 @@ export const AuthProvider = ({ children }) => {
         user, 
         token, 
         login, 
+        loginWithGoogle,
         logout, 
         loading, 
         setUser, 

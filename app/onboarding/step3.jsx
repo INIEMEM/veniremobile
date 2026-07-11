@@ -69,7 +69,7 @@ export default function Step3() {
     ]}
   >
     <ImageBackground
-      source={require("../../assets/step3.png")}
+      source={require("../../assets/onboarding3.jpg")}
       style={styles.background}
       resizeMode="cover"
     >
@@ -105,10 +105,9 @@ export default function Step3() {
           { transform: [{ translateX: leftSlide }], opacity: fadeIn },
         ]}
       >
-        <Text style={styles.title}>Discover and Explore Events of Interests</Text>
+        <Text style={styles.title}>Hire Vendors for your events</Text>
         <Text style={styles.caption}>
-          Explore events that match your vibe and meet people of like minds:
-          from concerts to tech meetups, weddings, and more.
+          Connect with top-rated professionals, from photographers to DJs, to make your event truly unforgettable.
         </Text>
       </Animated.View>
 
