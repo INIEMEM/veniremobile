@@ -185,6 +185,8 @@ function MessageBubble({
   onSubmitEventNameSuggestion,
   onSubmitHashtags,
   onSubmitDescription,
+  onSubmitEditSelection,
+  onSubmitTextInput,
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(15)).current;
@@ -210,6 +212,89 @@ function MessageBubble({
 
   if (msg.type === 'agent_action') {
     return <AgentActionCard tool={msg.tool} content={msg.text} done={msg.done} />;
+  }
+
+  // ── Edit Mode Selection ──────────────────────────────────────────────────────
+  if (msg.type === 'edit_mode_selection') {
+    return (
+      <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.aiAvatar}>
+          <Ionicons name="sparkles" size={13} color="#FFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.aiText}>{msg.text}</Text>
+          {!msg.answered && (
+            <View style={styles.editModeWrap}>
+              {(msg.editableFields || []).map((field, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.editModeFieldBtn}
+                  onPress={() => onSubmitEditSelection(msg.id, field.label, field.field)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.editModeFieldLabel}>{field.label}: </Text>
+                  <Text style={styles.editModeFieldValue} numberOfLines={1}>{field.currentValue}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {msg.answered && (
+            <View style={styles.datePickedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+              <Text style={styles.datePickedText}>{msg.answeredLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // ── Text / Textarea Input (often used for Edit Mode) ────────────────────────
+  if (msg.type === 'interactive_input' && msg.control === 'text') {
+    const isDescription = msg.field === 'description';
+    const [localText, setLocalText] = useState('');
+    
+    return (
+      <Animated.View style={[styles.messageBubble, styles.aiBubble, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.aiAvatar}>
+          <Ionicons name="sparkles" size={13} color="#FFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.aiText}>{msg.text}</Text>
+          {!msg.answered && (
+            <View style={styles.descEditWrap}>
+              <TextInput
+                style={[styles.descEditInput, !isDescription && { minHeight: 44 }]}
+                value={localText}
+                onChangeText={setLocalText}
+                placeholder={`Enter ${msg.field || 'text'}...`}
+                placeholderTextColor="#9CA3AF"
+                multiline={isDescription}
+                textAlignVertical={isDescription ? "top" : "center"}
+                numberOfLines={isDescription ? 3 : 1}
+              />
+              <TouchableOpacity
+                style={[styles.descEditSubmitBtn, !localText.trim() && styles.descEditSubmitBtnDisabled]}
+                onPress={() => {
+                  if (localText.trim()) onSubmitTextInput(msg.id, msg.field, localText.trim());
+                }}
+                disabled={!localText.trim()}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-circle-outline" size={15} color="#FFF" />
+                <Text style={styles.descEditSubmitText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {msg.answered && (
+            <View style={styles.datePickedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+              <Text style={styles.datePickedText}>{msg.answeredLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Animated.View>
+    );
   }
 
   // ── Event type options from SSE (event_type_options) ──────────────────────
@@ -1427,9 +1512,16 @@ export default function AICreateEvent() {
 
   // ─── SSE Streaming Call ──────────────────────────────────────────────────
   const handleSend = async (overrideText, apiOverrideText) => {
-  const text = typeof overrideText === 'string' ? overrideText : input.trim();
-  const apiText = typeof apiOverrideText === 'string' ? apiOverrideText : text;
-  if (!text || loadingChat || isStreaming) return; // ← block ALL sends while streaming, not just typed ones
+    let text = typeof overrideText === 'string' ? overrideText : input.trim();
+    let apiText = typeof apiOverrideText === 'string' ? apiOverrideText : text;
+    
+    if (!text || loadingChat || isStreaming) return; // ← block ALL sends while streaming, not just typed ones
+
+    // If the user types their first message instead of clicking a chip, format it as the event type
+    if (typeof overrideText !== 'string' && !eventPayload.name && messages.length <= 2) {
+      setEventPayload((prev) => ({ ...prev, name: text }));
+      apiText = `I want to plan a ${text} event.\nStructured response: ${JSON.stringify({ eventType: text })}`;
+    }
 
     const userMsg = { role: 'user', type: 'user', text };
     appendMessage(userMsg);
@@ -1698,6 +1790,18 @@ export default function AICreateEvent() {
             answered: false,
           });
           setAssistantText(event.content);
+        } else if (pendingInputRef.current?.control === 'text') {
+          const pending = pendingInputRef.current;
+          pendingInputRef.current = null;
+          appendMessage({
+            role: 'assistant',
+            type: 'interactive_input',
+            control: 'text',
+            field: pending.field,
+            text: event.content,
+            answered: false,
+          });
+          setAssistantText(event.content);
         } else {
           appendMessage({ role: 'assistant', type: 'agent_message', text: event.content });
           setAssistantText(event.content);
@@ -1732,6 +1836,20 @@ export default function AICreateEvent() {
           };
         }
         setActiveActions([]);
+        break;
+
+      case 'edit_mode':
+        setActiveActions([]);
+        if (event.editableFields) {
+          appendMessage({
+            role: 'assistant',
+            type: 'edit_mode_selection',
+            text: event.message || "Which field would you like to edit?",
+            editableFields: event.editableFields || [],
+            answered: false,
+          });
+          setAssistantText(event.message || "Which field would you like to edit?");
+        }
         break;
 
       case 'event_payload':
@@ -1837,7 +1955,7 @@ export default function AICreateEvent() {
         break;
 
       case 'error':
-        appendMessage({ role: 'assistant', type: 'agent_message', text: `⚠️ ${event.content}` });
+        appendMessage({ role: 'assistant', type: 'agent_message', text: `⚠️ ${event.error || event.message || event.content}` });
         break;
 
       default:
@@ -2115,6 +2233,31 @@ export default function AICreateEvent() {
       'Description confirmed',
       `Updated event description to: ${desc}\nStructured response: ${JSON.stringify({ description: desc })}`
     );
+  };
+
+  const handleSubmitEditSelection = (msgId, label, fieldName) => {
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, answered: true, answeredLabel: `Editing ${label}` } : m
+    ));
+    handleSend(`Edit ${label}`, JSON.stringify({ editMode: true, editField: fieldName }));
+  };
+
+  const handleSubmitTextInput = (msgId, field, value) => {
+    if (!value.trim()) return;
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, answered: true, answeredLabel: value } : m
+    ));
+    if (field) {
+      setEventPayload(prev => ({ ...prev, [field]: value }));
+    }
+    handleSend(
+      value,
+      `Updated ${field} to: ${value}\nStructured response: ${JSON.stringify({ [field]: value })}`
+    );
+  };
+
+  const handleEditEvent = () => {
+    handleSend('Edit Event', JSON.stringify({ editMode: true }));
   };
 
   const handleSelectOption = (msgId, field, option) => {
@@ -2492,17 +2635,27 @@ export default function AICreateEvent() {
           <View style={styles.previewLabelRow}>
             <View style={styles.liveDot} />
             <Text style={styles.previewHeader}>Live Preview</Text>
-            <TouchableOpacity
-              style={styles.posterBtn}
-              onPress={handleGeneratePoster}
-              disabled={isGeneratingPoster}
-              activeOpacity={0.8}
-            >
-              {isGeneratingPoster
-                ? <ActivityIndicator size="small" color="#EC4899" />
-                : <><Ionicons name="image-outline" size={13} color="#EC4899" /><Text style={styles.posterBtnText}> AI Poster</Text></>
-              }
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                style={styles.editEventBtn}
+                onPress={handleEditEvent}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="pencil" size={13} color="#5A31F4" />
+                <Text style={styles.editEventBtnText}> Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.posterBtn}
+                onPress={handleGeneratePoster}
+                disabled={isGeneratingPoster}
+                activeOpacity={0.8}
+              >
+                {isGeneratingPoster
+                  ? <ActivityIndicator size="small" color="#EC4899" />
+                  : <><Ionicons name="image-outline" size={13} color="#EC4899" /><Text style={styles.posterBtnText}> AI Poster</Text></>
+                }
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.previewCard}>
@@ -2625,6 +2778,8 @@ export default function AICreateEvent() {
               onSubmitEventNameSuggestion={handleSubmitEventNameSuggestion}
               onSubmitHashtags={handleSubmitHashtags}
               onSubmitDescription={handleSubmitDescription}
+              onSubmitEditSelection={handleSubmitEditSelection}
+              onSubmitTextInput={handleSubmitTextInput}
             />
           ))}
 
@@ -3676,6 +3831,46 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_700Bold',
     fontSize: 12,
     color: '#FFF',
+  },
+
+  // ── Edit Mode ──
+  editModeWrap: {
+    marginTop: 10,
+    gap: 6,
+  },
+  editModeFieldBtn: {
+    flexDirection: 'row',
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  editModeFieldLabel: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 12,
+    color: '#374151',
+  },
+  editModeFieldValue: {
+    flex: 1,
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  editEventBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  editEventBtnText: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 11,
+    color: '#5A31F4',
   },
 });
 

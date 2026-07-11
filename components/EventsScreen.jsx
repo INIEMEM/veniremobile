@@ -203,6 +203,7 @@ export default function EventsScreen({
         categoriesCache = response.data.data;
         categoriesCacheTime = Date.now();
         setCategories(response.data.data);
+        console.log('the event categories', response.data.data)
       }
     } catch (error) {
       console.error("Error fetching categories:", error);
