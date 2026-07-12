@@ -85,6 +85,13 @@ export default function VendorDashboardLayout() {
           title: 'Order Detail'
         }}
       />
+      <Tabs.Screen
+        name="order-chat"
+        options={{
+          href: null,
+          title: 'Order Chat'
+        }}
+      />
     </Tabs>
   );
 }

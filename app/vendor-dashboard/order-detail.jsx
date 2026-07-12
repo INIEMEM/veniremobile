@@ -264,58 +264,43 @@ export default function VendorOrderDetail() {
           </View>
         )}
 
-        {/* Chat Thread */}
-        <View style={styles.chatSection}>
-          <Text style={styles.chatTitle}>💬 Chat with Client</Text>
-          <Text style={styles.chatSubtitle}>Negotiate details before accepting</Text>
-
-          {messages.length === 0 ? (
-            <View style={styles.noChatBox}>
-              <Ionicons name="chatbubbles-outline" size={32} color="#D1D5DB" />
-              <Text style={styles.noChatText}>No messages yet. Start the conversation!</Text>
-            </View>
-          ) : (
-            messages.map((m, idx) => {
-              const isVendor = m.sender?.role !== 'regular';
-              return (
-                <View key={m._id || idx} style={[styles.bubble, isVendor ? styles.bubbleVendor : styles.bubbleClient]}>
-                  {!isVendor && (
-                    <Text style={styles.senderName}>{m.sender?.firstname} {m.sender?.lastname}</Text>
-                  )}
-                  <Text style={[styles.bubbleText, isVendor && styles.bubbleTextVendor]}>{m.message}</Text>
-                  <Text style={[styles.bubbleTime, isVendor && styles.bubbleTimeVendor]}>
-                    {fmtDate(m.createdAt)} {fmtTime(m.createdAt)}
-                  </Text>
-                </View>
-              );
+        {/* Chat with Client — navigates to full-screen chat */}
+        <TouchableOpacity
+          style={styles.chatCard}
+          activeOpacity={0.85}
+          onPress={() =>
+            router.push({
+              pathname: '/vendor-dashboard/order-chat',
+              params: {
+                orderId,
+                clientName: `${organizer.firstname || ''} ${organizer.lastname || ''}`.trim() || 'Client',
+                clientAvatar: organizer.profile_picture || '',
+              },
             })
-          )}
-        </View>
+          }
+        >
+          <View style={styles.chatCardLeft}>
+            <View style={styles.chatIconWrap}>
+              <Ionicons name="chatbubbles-outline" size={22} color="#5A31F4" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.chatCardTitle}>💬 Chat with Client</Text>
+              <Text style={styles.chatCardSub}>
+                {messages.length > 0
+                  ? `${messages.length} message${messages.length > 1 ? 's' : ''} · Tap to open`
+                  : 'Negotiate details before accepting'}
+              </Text>
+              {messages.length > 0 && (
+                <Text style={styles.chatCardPreview} numberOfLines={1}>
+                  {messages[messages.length - 1]?.message}
+                </Text>
+              )}
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#5A31F4" />
+        </TouchableOpacity>
       </ScrollView>
 
-      {/* Chat Input */}
-      {(status === 'pending' || status === 'accepted' || status === 'processing') && (
-        <View style={styles.inputBar}>
-          <TextInput
-            style={styles.chatInput}
-            value={newMsg}
-            onChangeText={setNewMsg}
-            placeholder="Type a message..."
-            placeholderTextColor="#aaa"
-            multiline
-            maxLength={500}
-            returnKeyType="send"
-            onSubmitEditing={handleSend}
-          />
-          <TouchableOpacity style={styles.sendBtn} onPress={handleSend} disabled={sending || !newMsg.trim()}>
-            {sending ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Ionicons name="send" size={18} color="#FFF" />
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
     </KeyboardAvoidingView>
   );
 }
@@ -360,27 +345,20 @@ const styles = StyleSheet.create({
   waitingBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ECFDF5', borderRadius: 14, padding: 14 },
   waitingText: { fontFamily: 'Poppins_500Medium', fontSize: 13, color: '#10B981', flex: 1 },
 
-  chatSection: { backgroundColor: '#FFF', borderRadius: 18, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  chatTitle: { fontFamily: 'Poppins_700Bold', fontSize: 15, color: '#1A1A1A', marginBottom: 2 },
-  chatSubtitle: { fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#888', marginBottom: 14 },
-  noChatBox: { alignItems: 'center', paddingVertical: 24, gap: 8 },
-  noChatText: { fontFamily: 'Poppins_400Regular', fontSize: 13, color: '#9CA3AF', textAlign: 'center' },
-
-  bubble: { maxWidth: '80%', borderRadius: 14, padding: 12, marginBottom: 10 },
-  bubbleClient: { backgroundColor: '#F3EDFF', alignSelf: 'flex-start', borderBottomLeftRadius: 4 },
-  bubbleVendor: { backgroundColor: '#5A31F4', alignSelf: 'flex-end', borderBottomRightRadius: 4 },
-  senderName: { fontFamily: 'Poppins_600SemiBold', fontSize: 11, color: '#5A31F4', marginBottom: 3 },
-  bubbleText: { fontFamily: 'Poppins_400Regular', fontSize: 13, color: '#1A1A1A', lineHeight: 20 },
-  bubbleTextVendor: { color: '#FFF' },
-  bubbleTime: { fontFamily: 'Poppins_400Regular', fontSize: 10, color: '#aaa', marginTop: 4 },
-  bubbleTimeVendor: { color: 'rgba(255,255,255,0.6)', textAlign: 'right' },
-
-  inputBar: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 10,
-    paddingHorizontal: 16, paddingVertical: 12,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
-    backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#F0F0F0',
+  chatCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#5A31F4',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  chatInput: { flex: 1, backgroundColor: '#F3EDFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, fontFamily: 'Poppins_400Regular', fontSize: 14, color: '#1A1A1A', maxHeight: 100 },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#5A31F4', justifyContent: 'center', alignItems: 'center' },
+  chatCardLeft:    { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  chatIconWrap:    { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3EDFF', justifyContent: 'center', alignItems: 'center' },
+  chatCardTitle:   { fontFamily: 'Poppins_700Bold', fontSize: 14, color: '#1A1A1A' },
+  chatCardSub:     { fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#888', marginTop: 1 },
+  chatCardPreview: { fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#5A31F4', marginTop: 3 },
 });

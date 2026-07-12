@@ -199,7 +199,7 @@ export default function VendorBookings() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={styles.rejectBtn}
-                    onPress={() => handleBookingAction(booking._id, 'rejected')}
+                    onPress={() => handleBookingAction(booking._id, 'reject')}
                     disabled={actionLoading === booking._id}
                   >
                     <Text style={styles.rejectBtnText}>Decline</Text>
@@ -207,7 +207,7 @@ export default function VendorBookings() {
                   
                   <TouchableOpacity 
                     style={styles.acceptBtn}
-                    onPress={() => handleBookingAction(booking._id, 'accepted')}
+                    onPress={() => handleBookingAction(booking._id, 'accept')}
                     disabled={actionLoading === booking._id}
                   >
                     {actionLoading === booking._id ? (
@@ -227,7 +227,7 @@ export default function VendorBookings() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={[styles.acceptBtn, { width: '100%' }]}
-                    onPress={() => handleBookingAction(booking._id, 'processed')}
+                    onPress={() => handleBookingAction(booking._id, 'process')}
                     disabled={actionLoading === booking._id}
                   >
                     {actionLoading === booking._id ? (
@@ -247,7 +247,7 @@ export default function VendorBookings() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={[styles.acceptBtn, { width: '100%', backgroundColor: '#10B981' }]}
-                    onPress={() => handleBookingAction(booking._id, 'delivered')}
+                    onPress={() => handleBookingAction(booking._id, 'deliver')}
                     disabled={actionLoading === booking._id}
                   >
                     {actionLoading === booking._id ? (
