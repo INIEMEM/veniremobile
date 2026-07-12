@@ -31,6 +31,7 @@ export default function TicketList() {
   
   // Transfer States
   const [showTransfer, setShowTransfer] = useState(false);
+  const [transferQuantity, setTransferQuantity] = useState("1");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -38,6 +39,8 @@ export default function TicketList() {
   const [isTransferring, setIsTransferring] = useState(false);
   
   // Refund States
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelQuantity, setCancelQuantity] = useState("1");
   const [isRefunding, setIsRefunding] = useState(false);
 
   const loadTickets = async () => {
@@ -45,52 +48,40 @@ export default function TicketList() {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
       
-      // Attempt to fetch from backend. If it requires eventId and returns 400, we fallback.
-      let fetchedTickets = [];
-      try {
-        const res = await api.get("/event/interest", {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.data?.success) {
-          fetchedTickets = res.data.data.map(interest => {
-            const isPopulated = typeof interest.eventId === 'object' && interest.eventId !== null;
-            return {
-              _id: interest._id,
-              event: isPopulated ? interest.eventId : {
-                name: "Event ID: " + interest.eventId,
-                start: new Date().toISOString(),
-                address: "Location info unavailable",
-                images: ["https://via.placeholder.com/150"]
-              },
-              ticketType: interest.ticketId ? (typeof interest.ticketId === 'object' ? interest.ticketId.name : "Ticket") : "General Admission",
-              price: 0, 
-              quantity: interest.ticketQuantity || 1,
-              status: interest.status || "valid",
-              qrCodeString: JSON.stringify({
-                eventId: isPopulated ? interest.eventId._id : interest.eventId,
-                ticket: interest._id
-              }),
-              ownerName: "You",
-            };
-          });
-        }
-      } catch (apiErr) {
-        console.log("Global interest fetch not supported or requires event ID, using local tickets");
-      }
+      const res = await api.get("/event/interest-all", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-      if (fetchedTickets.length > 0) {
+      if (res.data?.data) {
+        const fetchedTickets = res.data.data.map(interest => {
+          const eventObj = interest.eventId || {
+            name: "Unknown Event",
+            start: new Date().toISOString(),
+            address: "Location info unavailable",
+            images: ["https://via.placeholder.com/150"]
+          };
+          
+          return {
+            _id: interest._id,
+            event: eventObj,
+            ticketType: interest.ticketName || "General Admission",
+            price: interest.unitPrice || 0, 
+            quantity: interest.quantity || 1,
+            status: interest.isAttend ? "used" : "valid",
+            qrCodeString: JSON.stringify({
+              eventId: eventObj._id,
+              ticket: interest.ticket
+            }),
+            ownerName: "You",
+          };
+        });
+        
         setTickets(fetchedTickets);
       } else {
-        // Fallback to local storage / mock
-        const storedTicketsStr = await AsyncStorage.getItem("user_tickets_local");
-        let storedTickets = storedTicketsStr ? JSON.parse(storedTicketsStr) : [];
-        if (storedTickets.length === 0) {
-          storedTickets = MOCK_TICKETS;
-        }
-        setTickets(storedTickets);
+        setTickets([]);
       }
     } catch (err) {
-      console.error("Error loading tickets:", err);
+      console.error("Error loading tickets:", err?.response?.data || err?.message);
       setTickets([]);
     } finally {
       setLoading(false);
@@ -128,11 +119,18 @@ export default function TicketList() {
       Toast.show({ type: 'error', text1: 'Select a User', text2: 'Please select a recipient first.' });
       return;
     }
+    const qty = parseInt(transferQuantity);
+    if (isNaN(qty) || qty <= 0 || qty > selectedTicket.quantity) {
+      Toast.show({ type: 'error', text1: 'Invalid Quantity', text2: `Please enter a valid quantity (max ${selectedTicket.quantity}).` });
+      return;
+    }
+
     setIsTransferring(true);
     try {
       const token = await AsyncStorage.getItem("token");
       const res = await api.put(`/event/interest-transfer/${selectedTicket._id}`, {
-        newUserId: selectedUser._id
+        recipientId: selectedUser._id,
+        quantity: qty
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -141,12 +139,13 @@ export default function TicketList() {
         Toast.show({
           type: "success",
           text1: "Ticket Transferred! ✈️",
-          text2: `Ticket sent to ${selectedUser.username || selectedUser.firstName} successfully.`
+          text2: `Ticket sent to ${selectedUser.username || selectedUser.firstName || selectedUser.firstname} successfully.`
         });
         setSelectedTicket(null);
         setShowTransfer(false);
         setSelectedUser(null);
         setSearchQuery("");
+        setTransferQuantity("1");
         loadTickets();
       }
     } catch (err) {
@@ -157,46 +156,45 @@ export default function TicketList() {
     }
   };
 
-  const handleCancel = async () => {
+  const handleCancel = () => {
     if (!selectedTicket) return;
-    
-    Alert.alert(
-      "Confirm Cancellation",
-      "Are you sure you want to cancel this ticket? This action cannot be undone.",
-      [
-        { text: "No, Keep It", style: "cancel" },
-        {
-          text: "Yes, Cancel",
-          style: "destructive",
-          onPress: async () => {
-            setIsRefunding(true);
-            try {
-              const token = await AsyncStorage.getItem("token");
-              const res = await api.post("/event/interest-cancel", {
-                interestId: selectedTicket._id
-              }, {
-                headers: { Authorization: `Bearer ${token}` }
-              });
-              
-              if (res.data?.success) {
-                Toast.show({
-                  type: "success",
-                  text1: "Ticket Cancelled",
-                  text2: "Your ticket has been cancelled successfully."
-                });
-                setSelectedTicket(null);
-                loadTickets();
-              }
-            } catch (err) {
-              console.error(err);
-              Toast.show({ type: "error", text1: "Cancellation Failed", text2: err.response?.data?.message || "Please try again." });
-            } finally {
-              setIsRefunding(false);
-            }
-          }
-        }
-      ]
-    );
+    setShowCancel(true);
+    setCancelQuantity("1");
+  };
+
+  const submitCancel = async () => {
+    const qty = parseInt(cancelQuantity);
+    if (isNaN(qty) || qty <= 0 || qty > selectedTicket.quantity) {
+      Toast.show({ type: 'error', text1: 'Invalid Quantity', text2: `Please enter a valid quantity (max ${selectedTicket.quantity}).` });
+      return;
+    }
+
+    setIsRefunding(true);
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const res = await api.post("/event/interest-cancel", {
+        interestId: selectedTicket._id,
+        quantity: qty
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (res.data?.success) {
+        Toast.show({
+          type: "success",
+          text1: "Ticket Cancelled",
+          text2: res.data.message || "Your ticket has been cancelled successfully."
+        });
+        setSelectedTicket(null);
+        setShowCancel(false);
+        loadTickets();
+      }
+    } catch (err) {
+      console.error(err);
+      Toast.show({ type: "error", text1: "Cancellation Failed", text2: err.response?.data?.message || "Please try again." });
+    } finally {
+      setIsRefunding(false);
+    }
   };
 
   const formatDate = (dateString) => {
@@ -235,7 +233,9 @@ export default function TicketList() {
         <View style={styles.cardBottom}>
           <View>
             <Text style={styles.label}>Ticket Type</Text>
-            <Text style={styles.value}>{item.ticketType}</Text>
+            <Text style={styles.value}>
+              {item.ticketType} {item.quantity > 1 ? `(x${item.quantity})` : ''}
+            </Text>
           </View>
           <View style={styles.scanBadge}>
             <Ionicons name="qr-code-outline" size={20} color="#5A31F4" />
@@ -291,25 +291,84 @@ export default function TicketList() {
               <Ionicons name="close-circle" size={32} color="#333" />
             </TouchableOpacity>
 
-            {showTransfer ? (
+            {showCancel ? (
+              <View style={{ width: '100%', paddingVertical: 10 }}>
+                <Text style={styles.modalTitleText}>Cancel Ticket</Text>
+                <Text style={styles.modalSubtitleText}>
+                  Enter the quantity you want to cancel (Max: {selectedTicket?.quantity}).
+                </Text>
+                
+                <Text style={styles.modalInputLabel}>Quantity</Text>
+                <View style={[styles.modalFormInput, { flexDirection: 'row', alignItems: 'center', paddingVertical: 0 }]}>
+                  <Ionicons name="close-circle-outline" size={20} color="#FF3B30" />
+                  <TextInput
+                    style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 10, fontFamily: 'Poppins_400Regular', fontSize: 14, color: '#1A1A1A' }}
+                    value={cancelQuantity}
+                    onChangeText={setCancelQuantity}
+                    placeholder="1"
+                    placeholderTextColor="#999"
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                <View style={styles.modalActionRow}>
+                  <TouchableOpacity
+                    style={[styles.modalActionBtn, styles.modalCancelBtn]}
+                    onPress={() => setShowCancel(false)}
+                    disabled={isRefunding}
+                  >
+                    <Text style={styles.modalCancelBtnText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalActionBtn, styles.modalConfirmBtn, { backgroundColor: '#FF3B30' }]}
+                    onPress={submitCancel}
+                    disabled={isRefunding || !cancelQuantity}
+                  >
+                    {isRefunding ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <Text style={styles.modalConfirmBtnText}>Confirm Cancel</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : showTransfer ? (
               <View style={{ width: '100%', paddingVertical: 10 }}>
                 <Text style={styles.modalTitleText}>Transfer Ticket</Text>
                 <Text style={styles.modalSubtitleText}>
                   Search for a user to transfer your ticket to.
                 </Text>
                 
-                <Text style={styles.modalInputLabel}>Search User</Text>
-                <View style={[styles.modalFormInput, { flexDirection: 'row', alignItems: 'center', paddingVertical: 0 }]}>
-                  <Ionicons name="search-outline" size={20} color="#999" />
-                  <TextInput
-                    style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 10, fontFamily: 'Poppins_400Regular', fontSize: 14, color: '#1A1A1A' }}
-                    value={searchQuery}
-                    onChangeText={searchUsers}
-                    placeholder="Search by name or email"
-                    placeholderTextColor="#999"
-                    autoCapitalize="none"
-                  />
-                  {isSearching && <ActivityIndicator size="small" color="#5A31F4" />}
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalInputLabel}>Search User</Text>
+                    <View style={[styles.modalFormInput, { flexDirection: 'row', alignItems: 'center', paddingVertical: 0, marginBottom: 0 }]}>
+                      <Ionicons name="search-outline" size={20} color="#999" />
+                      <TextInput
+                        style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 10, fontFamily: 'Poppins_400Regular', fontSize: 14, color: '#1A1A1A' }}
+                        value={searchQuery}
+                        onChangeText={searchUsers}
+                        placeholder="Name or email"
+                        placeholderTextColor="#999"
+                        autoCapitalize="none"
+                      />
+                      {isSearching && <ActivityIndicator size="small" color="#5A31F4" />}
+                    </View>
+                  </View>
+                  
+                  <View style={{ width: 80 }}>
+                    <Text style={styles.modalInputLabel}>Qty</Text>
+                    <View style={[styles.modalFormInput, { paddingVertical: 0, marginBottom: 0 }]}>
+                      <TextInput
+                        style={{ paddingVertical: 10, paddingHorizontal: 10, fontFamily: 'Poppins_400Regular', fontSize: 14, color: '#1A1A1A', textAlign: 'center' }}
+                        value={transferQuantity}
+                        onChangeText={setTransferQuantity}
+                        placeholder="1"
+                        placeholderTextColor="#999"
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
                 </View>
 
                 {searchResults.length > 0 && !selectedUser && (
@@ -390,7 +449,7 @@ export default function TicketList() {
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalEventName}>{selectedTicket?.event?.name}</Text>
                   <Text style={styles.modalTicketType}>
-                    {selectedTicket?.ticketType} / ₦{selectedTicket?.price?.toLocaleString()}
+                    {selectedTicket?.ticketType} {selectedTicket?.quantity > 1 ? `(x${selectedTicket?.quantity})` : ''} / ₦{selectedTicket?.price?.toLocaleString()}
                   </Text>
                 </View>
 

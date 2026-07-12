@@ -1199,6 +1199,21 @@ export default function EventDetailsScreen() {
               </TouchableOpacity>
             )}
 
+            {isOwner && !isDraft && (
+              <TouchableOpacity
+                style={styles.optionItem}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  router.push(`/events/attendees/${event._id}`);
+                }}
+              >
+                <Ionicons name="checkmark-done-circle-outline" size={22} color="#10B981" />
+                <Text style={[styles.optionText, { color: '#10B981' }]}>
+                  Mark as Present
+                </Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.optionItem, styles.deleteOption]}
               onPress={handleDeleteEvent}
