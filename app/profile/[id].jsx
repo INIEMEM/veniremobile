@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
@@ -16,6 +15,7 @@ import {
 import { LineChart } from "react-native-chart-kit";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
@@ -25,6 +25,7 @@ import { useAuth } from "../../context/AuthContext";
 // import CustomKeyboardInput from '../../../components/CustomKeyboardInput';
 import CustomKeyboardInput from "../../components/CustomKeyboardInput";
 import RaiseDisputeModal from "../../components/RaiseDisputeModal";
+import CustomFormLoader from "../../components/CustomFormLoader";
 const { width } = Dimensions.get("window");
 
 export default function ProfilePage() {
@@ -418,11 +419,7 @@ export default function ProfilePage() {
   };
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#5A31F4" />
-      </View>
-    );
+    return <CustomFormLoader />;
   }
 
   const user = userProfile || {};
@@ -442,6 +439,8 @@ export default function ProfilePage() {
           source={{ uri: user.banner || "https://images.pexels.com/photos/1190297/pexels-photo-1190297.jpeg?auto=compress&cs=tinysrgb&w=1200" }}
           style={styles.heroBanner}
           blurRadius={1}
+          contentFit="cover"
+          transition={200}
         />
         <View style={styles.heroOverlay} />
         <View style={styles.heroTopRow}>
@@ -468,7 +467,7 @@ export default function ProfilePage() {
           )}
         </View>
         <View style={styles.avatarWrapper}>
-          <Image source={{ uri: avatarUri }} style={styles.heroAvatar} />
+          <Image source={{ uri: avatarUri }} style={styles.heroAvatar} transition={200} contentFit="cover" />
           {isMyProfile && (
             <TouchableOpacity style={styles.cameraIcon} onPress={handleImageUpload} disabled={uploadingImage}>
               {uploadingImage ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={14} color="#fff" />}
@@ -916,6 +915,7 @@ export default function ProfilePage() {
                   <Image 
                     source={{ uri: userItem.profile_picture || "https://cdn-icons-png.flaticon.com/512/149/149071.png" }} 
                     style={styles.followListAvatar} 
+                    transition={200}
                   />
                   <View style={styles.followListInfo}>
                     <Text style={styles.followListName}>

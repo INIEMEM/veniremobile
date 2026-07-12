@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   TouchableOpacity,
   Animated,
   ActivityIndicator,
@@ -20,6 +19,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Video } from "expo-av";
+import { Image } from "expo-image";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
 import CommentsSection from "../../../components/CommentsSection";
@@ -750,7 +750,7 @@ export default function EventDetailsScreen() {
                       </>
                     ) : (
                       <TouchableOpacity style={{ flex: 1 }} onPress={() => openFullScreen(idx)} activeOpacity={0.95}>
-                        <Image source={{ uri: item.uri }} style={styles.media} resizeMode="cover" />
+                        <Image source={{ uri: item.uri }} style={styles.media} contentFit="cover" transition={200} />
                         <View style={styles.expandBtn} pointerEvents="none">
                           <Ionicons name="expand-outline" size={16} color="#FFF" />
                         </View>
@@ -914,6 +914,8 @@ export default function EventDetailsScreen() {
               <Image
                 source={{ uri: organizerImage }}
                 style={styles.postedAvatar}
+                contentFit="cover"
+                transition={200}
               />
               <View>
                 <Text style={styles.postedByLabel}>
@@ -965,7 +967,7 @@ export default function EventDetailsScreen() {
                       >
                         <View style={styles.vendorCardLeft}>
                           {photo ? (
-                            <Image source={{ uri: photo }} style={styles.vendorAvatar} />
+                            <Image source={{ uri: photo }} style={styles.vendorAvatar} transition={200} />
                           ) : (
                             <View style={[styles.vendorAvatar, styles.vendorAvatarFallback]}>
                               <Text style={styles.vendorAvatarLetter}>{name.charAt(0).toUpperCase()}</Text>
@@ -1077,7 +1079,7 @@ export default function EventDetailsScreen() {
                     volume={1.0}
                   />
                 ) : (
-                  <Image source={{ uri: item.uri }} style={styles.fsMedia} resizeMode="contain" />
+                  <Image source={{ uri: item.uri }} style={styles.fsMedia} contentFit="contain" transition={200} />
                 )}
               </View>
             ))}

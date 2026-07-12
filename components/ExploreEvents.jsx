@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   TouchableOpacity,
   Animated,
   ActivityIndicator,
@@ -22,6 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
 import { useToast } from '../context/ToastContext';
 import { Modal } from 'react-native';
+import { Image } from 'expo-image';
 import ReelsScreen from './ReelsScreen';
 import MOCK_REELS from '../constants/reelsMockData';
 
@@ -778,7 +778,7 @@ export default function ExploreEvents({
                       <Image
                         source={{ uri: item.uri }}
                         style={styles.carouselMedia}
-                        resizeMode="cover"
+                        contentFit="cover" transition={200}
                       />
                     </TouchableOpacity>
                   )}
@@ -1129,7 +1129,7 @@ export default function ExploreEvents({
                     <Image
                       source={{ uri: item.uri }}
                       style={styles.carouselMedia}
-                      resizeMode="cover"
+                      contentFit="cover" transition={200}
                     />
                     <View 
                       style={styles.sponsoredMediaOverlay} 
@@ -1440,7 +1440,7 @@ export default function ExploreEvents({
                       <Image
                         source={{ uri: item.uri }}
                         style={styles.fullScreenMedia}
-                        resizeMode="contain"
+                        contentFit="contain" transition={200}
                       />
                     )}
                   </View>

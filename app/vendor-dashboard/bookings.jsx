@@ -21,7 +21,7 @@ const { width } = Dimensions.get('window');
 const TABS = [
   { id: 'pending',    label: 'Pending' },
   { id: 'accepted',   label: 'Accepted' },
-  { id: 'processing', label: 'In Progress' },
+  { id: 'processed', label: 'Processed' },
   { id: 'delivered',  label: 'Delivered' },
   { id: 'completed',  label: 'Completed' },
   { id: 'rejected',   label: 'Rejected' },
@@ -199,7 +199,7 @@ export default function VendorBookings() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={styles.rejectBtn}
-                    onPress={() => handleBookingAction(booking._id, 'reject')}
+                    onPress={() => handleBookingAction(booking._id, 'rejected')}
                     disabled={actionLoading === booking._id}
                   >
                     <Text style={styles.rejectBtnText}>Decline</Text>
@@ -207,7 +207,7 @@ export default function VendorBookings() {
                   
                   <TouchableOpacity 
                     style={styles.acceptBtn}
-                    onPress={() => handleBookingAction(booking._id, 'accept')}
+                    onPress={() => handleBookingAction(booking._id, 'accepted')}
                     disabled={actionLoading === booking._id}
                   >
                     {actionLoading === booking._id ? (
@@ -227,7 +227,7 @@ export default function VendorBookings() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={[styles.acceptBtn, { width: '100%' }]}
-                    onPress={() => handleBookingAction(booking._id, 'process')}
+                    onPress={() => handleBookingAction(booking._id, 'processed')}
                     disabled={actionLoading === booking._id}
                   >
                     {actionLoading === booking._id ? (
@@ -243,11 +243,11 @@ export default function VendorBookings() {
               )}
 
               {/* Action Buttons for In-Progress (processing) */}
-              {booking.status === 'processing' && (
+              {booking.status === 'processed' && (
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={[styles.acceptBtn, { width: '100%', backgroundColor: '#10B981' }]}
-                    onPress={() => handleBookingAction(booking._id, 'deliver')}
+                    onPress={() => handleBookingAction(booking._id, 'delivered')}
                     disabled={actionLoading === booking._id}
                   >
                     {actionLoading === booking._id ? (

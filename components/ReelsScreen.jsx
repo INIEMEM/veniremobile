@@ -11,7 +11,6 @@ import {
   Dimensions,
   Easing,
   FlatList,
-  Image,
   Platform,
   StatusBar,
   StyleSheet,
@@ -22,6 +21,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { Video } from "expo-av";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import api from "../utils/axiosInstance";
 import { useToast } from "../context/ToastContext";
@@ -137,7 +137,7 @@ const ReelItem = memo(function ReelItem({
         <View style={styles.imageBackground}>
           <Image
             source={{ uri: media.uri }}
-            resizeMode="cover"
+            contentFit="cover" transition={200}
             style={styles.backgroundMedia}
           />
           <View style={styles.noVideoPill}>
@@ -191,6 +191,7 @@ const ReelItem = memo(function ReelItem({
           <Image
             source={{ uri: getOrganizerAvatar(event) }}
             style={styles.organizerAvatar}
+            transition={200}
           />
           <Text style={styles.organizerName} numberOfLines={1}>
             {getOrganizerName(event)}

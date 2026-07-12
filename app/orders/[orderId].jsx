@@ -24,7 +24,7 @@ const STATUS_CONFIG = {
   accepted:   { label: "Accepted",        color: "#3B82F6", bg: "#EFF6FF" },
   processing: { label: "In Progress",     color: "#8B5CF6", bg: "#F3EDFF" },
   process:    { label: "In Progress",     color: "#8B5CF6", bg: "#F3EDFF" },
-  processed:  { label: "In Progress",     color: "#8B5CF6", bg: "#F3EDFF" },
+  processed:  { label: "Order Ready",     color: "#8B5CF6", bg: "#F3EDFF" },
   delivered:  { label: "Delivered",       color: "#10B981", bg: "#ECFDF5" },
   completed:  { label: "Completed ✓",    color: "#10B981", bg: "#ECFDF5" },
   cancelled:  { label: "Cancelled",       color: "#EF4444", bg: "#FEF2F2" },
@@ -165,8 +165,28 @@ export default function OrderDetailsScreen() {
           onPress: async () => {
             setCompleting(true);
             try {
-              const res = await api.put(`/user/vendor-orders/${orderId}/complete`);
-              if (res.data?.success) {
+              console.log("Attempting to complete order:", orderId);
+
+              // Try the primary endpoint
+              let res;
+              try {
+                res = await api.put(`/user/vendor-orders/${orderId}/complete`);
+                console.log("Complete order response:", JSON.stringify(res.data));
+              } catch (primaryErr) {
+                console.log("Primary endpoint failed:", primaryErr?.response?.status, JSON.stringify(primaryErr?.response?.data));
+                // Try alternative endpoint patterns
+                try {
+                  res = await api.patch(`/user/vendor-orders/${orderId}/complete`);
+                  console.log("Patch endpoint response:", JSON.stringify(res.data));
+                } catch (patchErr) {
+                  console.log("Patch endpoint failed:", patchErr?.response?.status, JSON.stringify(patchErr?.response?.data));
+                  // Try with /status endpoint
+                  res = await api.put(`/user/vendor-orders/${orderId}/status`, { status: "completed" });
+                  console.log("Status endpoint response:", JSON.stringify(res.data));
+                }
+              }
+
+              if (res?.data?.success) {
                 setOrder((prev) => ({
                   ...prev,
                   status: "completed",
@@ -174,10 +194,18 @@ export default function OrderDetailsScreen() {
                 }));
                 Alert.alert("🎉 Done!", "Job marked as complete. Payment has been released to the vendor.");
               } else {
-                Alert.alert("Error", res.data?.message || "Failed to complete order.");
+                const msg = res?.data?.message || res?.data?.error || "Failed to complete order.";
+                console.log("Complete order failed:", msg);
+                Alert.alert("Error", msg);
               }
             } catch (error) {
-              Alert.alert("Error", error?.response?.data?.message || "Something went wrong.");
+              const status = error?.response?.status;
+              const backendMsg = error?.response?.data?.message || error?.response?.data?.error;
+              console.log("Complete order error — status:", status, "| message:", backendMsg, "| full:", JSON.stringify(error?.response?.data));
+              Alert.alert(
+                "Error",
+                backendMsg || `Request failed (${status || "network error"}). Please try again.`
+              );
             } finally {
               setCompleting(false);
             }
@@ -255,9 +283,12 @@ export default function OrderDetailsScreen() {
       )}
 
       {/* ─── COMPLETE JOB BANNER ─── */}
-      {order?.status === "delivered" && (
+      {(order?.status === "delivered" || order?.status === "accepted" || order?.status === "processing" || order?.status === "process" || order?.status === "processed") && (
         <TouchableOpacity
-          style={styles.completeBanner}
+          style={[
+            styles.completeBanner,
+            order?.status !== "delivered" && { backgroundColor: "#10B981" },
+          ]}
           onPress={handleCompleteOrder}
           disabled={completing}
           activeOpacity={0.85}
@@ -268,8 +299,14 @@ export default function OrderDetailsScreen() {
             <>
               <Ionicons name="checkmark-circle-outline" size={22} color="#FFF" />
               <View style={{ marginLeft: 12, flex: 1 }}>
-                <Text style={styles.completeBannerTitle}>Vendor has delivered!</Text>
-                <Text style={styles.completeBannerSub}>Tap to confirm & release payment</Text>
+                <Text style={styles.completeBannerTitle}>
+                  {order?.status === "delivered" ? "Vendor has delivered!" : "Mark Job as Complete"}
+                </Text>
+                <Text style={styles.completeBannerSub}>
+                  {order?.status === "delivered"
+                    ? "Tap to confirm & release payment"
+                    : "Satisfied with the service? Tap to close this job"}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#FFF" />
             </>

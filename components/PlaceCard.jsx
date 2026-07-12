@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   TouchableOpacity,
   Animated,
   ScrollView,
@@ -13,6 +12,7 @@ import {
   Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { Video } from "expo-av";
 import { useRouter } from "expo-router";
 import { PLACE_CATEGORIES } from "../constants/placesMockData";
@@ -180,7 +180,7 @@ export default function PlaceCard({ place, onLike, onSave }) {
                     activeOpacity={0.95}
                     onPress={() => openFullScreen(idx)}
                   >
-                    <Image source={{ uri: item.uri }} style={styles.media} resizeMode="cover" />
+                    <Image source={{ uri: item.uri }} style={styles.media} contentFit="cover" transition={200} />
                     {/* Expand icon for images too */}
                     <View style={styles.expandBtn} pointerEvents="none">
                       <Ionicons name="expand-outline" size={16} color="#FFF" />
@@ -341,7 +341,7 @@ export default function PlaceCard({ place, onLike, onSave }) {
                     volume={1.0}
                   />
                 ) : (
-                  <Image source={{ uri: item.uri }} style={styles.fsMedia} resizeMode="contain" />
+                  <Image source={{ uri: item.uri }} style={styles.fsMedia} contentFit="contain" transition={200} />
                 )}
               </View>
             ))}

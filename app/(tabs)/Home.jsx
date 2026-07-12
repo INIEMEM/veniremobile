@@ -5,7 +5,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   Animated,
   TextInput,
   Dimensions,
@@ -14,6 +13,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import EventsScreen from "../../components/EventsScreen";
 import PlacesScreen from "../../components/PlacesScreen";
@@ -233,6 +233,7 @@ export default function Home() {
                     : require("../../assets/default-avatar.jpg")
                 }
                 style={styles.avatar}
+                transition={200}
               />
             </TouchableOpacity>
             <View style={styles.userTextBlock}>

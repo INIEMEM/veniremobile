@@ -22,7 +22,7 @@ const { width } = Dimensions.get('window');
 const STATUS_CONFIG = {
   pending:    { color: '#FAB843', bg: '#FFF8EC', label: 'Pending',      icon: 'time-outline' },
   accepted:   { color: '#5A31F4', bg: '#F3EDFF', label: 'Accepted',     icon: 'checkmark-circle-outline' },
-  processing: { color: '#3B82F6', bg: '#EFF6FF', label: 'In Progress',  icon: 'play-circle-outline' },
+  processed: { color: '#3B82F6', bg: '#EFF6FF', label: 'Processed',  icon: 'play-circle-outline' },
   delivered:  { color: '#10B981', bg: '#ECFDF5', label: 'Delivered',    icon: 'bag-check-outline' },
   completed:  { color: '#2ECC71', bg: '#E6F9F0', label: 'Completed',    icon: 'trophy-outline' },
   rejected:   { color: '#EF4444', bg: '#FEF2F2', label: 'Rejected',     icon: 'close-circle-outline' },
@@ -242,10 +242,10 @@ export default function VendorOrderDetail() {
         {!actioning && status === 'accepted' && (
           <TouchableOpacity style={[styles.actionBtn, styles.startBtn, { marginHorizontal: 0 }]} onPress={handleStart}>
             <Ionicons name="play-circle-outline" size={18} color="#FFF" />
-            <Text style={[styles.actionBtnText, { color: '#FFF' }]}>Start Job</Text>
+            <Text style={[styles.actionBtnText, { color: '#FFF' }]}>Complete Order</Text>
           </TouchableOpacity>
         )}
-        {!actioning && status === 'processing' && (
+        {!actioning && status === 'processed' && (
           <TouchableOpacity style={[styles.actionBtn, styles.deliverBtn, { marginHorizontal: 0 }]} onPress={handleDeliver}>
             <Ionicons name="bag-check-outline" size={18} color="#FFF" />
             <Text style={[styles.actionBtnText, { color: '#FFF' }]}>Mark as Delivered</Text>
