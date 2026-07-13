@@ -11,6 +11,7 @@ import {
   Animated,
   Dimensions,
   Platform,
+  DeviceEventEmitter
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import PlaceCard from "./PlaceCard";
@@ -21,10 +22,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useToast } from "../context/ToastContext";
 import { useEffect } from "react";
 
+
 const { width } = Dimensions.get("window");
 
 export default function PlacesScreen({ searchQuery = "", filterStatus }) {
   const [places, setPlaces] = useState([]);
+  const [uploadVisible, setUploadVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -32,10 +35,16 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
   const [activeCategory, setActiveCategory] = useState("all");
   const [categories, setCategories] = useState([{ _id: "all", name: "All" }]);
   const [refreshing, setRefreshing] = useState(false);
-  const [uploadVisible, setUploadVisible] = useState(false);
   const fabAnim = useRef(new Animated.Value(1)).current;
 
   // ── Fetch dynamic categories ─────────────────────────────
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('openCreatePlaceModal', () => {
+      setUploadVisible(true);
+    });
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -221,14 +230,6 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
   }, [toast]);
 
 
-  // ── FAB pulse animation ──────────────────────────────────
-  const pulseFab = () => {
-    Animated.sequence([
-      Animated.timing(fabAnim, { toValue: 0.88, duration: 100, useNativeDriver: true }),
-      Animated.spring(fabAnim, { toValue: 1, friction: 4, useNativeDriver: true }),
-    ]).start();
-  };
-
   // ── Render each card ─────────────────────────────────────
   const renderItem = useCallback(({ item }) => (
     <PlaceCard
@@ -297,15 +298,6 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
           ? "Try a different search term or browse all categories."
           : "Be the first to share a great spot! Tap the + button below."}
       </Text>
-      {!searchQuery && (
-        <TouchableOpacity
-          style={styles.emptyBtn}
-          onPress={() => { pulseFab(); setUploadVisible(true); }}
-        >
-          <Ionicons name="add" size={16} color="#FFF" />
-          <Text style={styles.emptyBtnText}>Share a Place</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 
@@ -357,29 +349,11 @@ export default function PlacesScreen({ searchQuery = "", filterStatus }) {
         />
       )}
 
-      {/* ── Floating Action Button ──────────────────────── */}
-      <Animated.View
-        style={[styles.fab, { transform: [{ scale: fabAnim }] }]}
-      >
-        <TouchableOpacity
-          style={styles.fabInner}
-          activeOpacity={0.85}
-          onPress={() => {
-            pulseFab();
-            setUploadVisible(true);
-          }}
-        >
-          <Ionicons name="add" size={28} color="#FFF" />
-        </TouchableOpacity>
-      </Animated.View>
-
       {/* ── Upload Modal ────────────────────────────────── */}
       <UploadPlaceModal
         visible={uploadVisible}
         onClose={() => setUploadVisible(false)}
         onSuccess={() => {
-          // TODO (Backend): After successful upload, prepend new place to feed
-          // or refetch the first page. For now we just close.
           onRefresh();
         }}
       />

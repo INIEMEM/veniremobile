@@ -1,9 +1,27 @@
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { View, StyleSheet, Pressable } from "react-native";
-import { Link } from "expo-router";
+import { View, StyleSheet, Pressable, DeviceEventEmitter } from "react-native";
+import React, { useState, useEffect } from "react";
 
 export default function TabLayout() {
+  const [activeTab, setActiveTab] = useState("events");
+  const router = useRouter();
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('homeTabChanged', (tab) => {
+      setActiveTab(tab);
+    });
+    return () => sub.remove();
+  }, []);
+
+  const handlePlusPress = () => {
+    if (activeTab === "events") {
+      router.push("/events/create");
+    } else {
+      DeviceEventEmitter.emit('openCreatePlaceModal');
+    }
+  };
+
   return (
     <Tabs
       screenOptions={{
@@ -36,7 +54,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="Events/[id]"
         options={{
-          href: null, // 🚫 This line hides it from the tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -44,13 +62,11 @@ export default function TabLayout() {
         options={{
           title: "",
           tabBarIcon: () => (
-            <Link href="/events/create" asChild>
-              <Pressable style={styles.createButtonContainer}>
-                <View style={styles.createButton}>
-                  <Ionicons name="add" size={28} color="#FFF" />
-                </View>
-              </Pressable>
-            </Link>
+            <Pressable onPress={handlePlusPress} style={styles.createButtonContainer}>
+              <View style={[styles.createButton, { backgroundColor: activeTab === 'events' ? '#FAB843' : '#5A31F4', shadowColor: activeTab === 'events' ? '#FAB843' : '#5A31F4', borderColor: '#FFF' }]}>
+                <Ionicons name="add" size={28} color="#FFF" />
+              </View>
+            </Pressable>
           ),
         }}
       />
@@ -74,25 +90,25 @@ export default function TabLayout() {
       <Tabs.Screen
         name="Vendor/register"
         options={{
-          href: null, // 🚫 This line hides it from the tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
         name="Vendor/testresgister"
         options={{
-          href: null, // 🚫 This line hides it from the tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
         name="Vendor/marketplace"
         options={{
-          href: null, // 🚫 Hidden from tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
         name="Vendor/[vendorId]"
         options={{
-          href: null, // 🚫 Hidden from tab bar
+          href: null,
         }}
       />
     </Tabs>
@@ -109,15 +125,12 @@ const styles = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "#FAB843",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#FAB843",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 5,
     elevation: 8,
     borderWidth: 3,
-    borderColor: "#FFF",
   },
 });

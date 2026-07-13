@@ -11,6 +11,7 @@ import {
   Platform,
   StatusBar,
   ScrollView,
+  DeviceEventEmitter
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -20,6 +21,7 @@ import PlacesScreen from "../../components/PlacesScreen";
 import ReelsScreen from "../../components/ReelsScreen";
 import FilterModal from "../../components/FilterModal";
 import { useAuth } from "../../context/AuthContext";
+
 import { truncateText } from "../../utils/truncateText";
 import MOCK_REELS from "../../constants/reelsMockData";
 
@@ -40,6 +42,9 @@ export default function Home() {
   const [reelsMode, setReelsMode] = useState(false);
   const [mapMode, setMapMode] = useState(false);
   const router = useRouter();
+  
+
+
   const toggleAnim = useRef(new Animated.Value(0)).current;
   // Subtle animations
   const headerOpacity = useRef(new Animated.Value(0)).current;
@@ -148,6 +153,9 @@ export default function Home() {
 
   const handleToggle = (tab) => {
     setSelectedTab(tab);
+    setReelsMode(false);
+    setMapMode(false);
+    DeviceEventEmitter.emit('homeTabChanged', tab);
     Animated.spring(toggleAnim, {
       toValue: tab === "events" ? 0 : 1,
       useNativeDriver: false,
@@ -277,11 +285,7 @@ export default function Home() {
                       selectedTab === "events" && 
                         !reelsMode && styles.activeToggle,
                     ]}
-                    onPress={() => {
-                      setSelectedTab("events")
-                      setReelsMode(false)
-                      setMapMode(false)
-                    }}
+                    onPress={() => handleToggle("events")}
                     activeOpacity={0.8}
                   >
                     <Text
@@ -301,11 +305,7 @@ export default function Home() {
                       selectedTab === "places" && 
                         !reelsMode && styles.activeToggle,
                     ]}
-                    onPress={() => {
-                      setSelectedTab("places")
-                      setReelsMode(false)
-                      setMapMode(false)
-                    }}
+                    onPress={() => handleToggle("places")}
                     activeOpacity={0.8}
                   >
                     <Text
