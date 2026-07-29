@@ -12,13 +12,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import api from '../../../utils/axiosInstance';
-import { useToast } from '../../../context/ToastContext';
+import Toast from 'react-native-toast-message';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 
 export default function MarkPresentScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const { toast } = useToast();
 
   const [ticketId, setTicketId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,7 +32,7 @@ export default function MarkPresentScreen() {
     const trimmedTicket = targetTicket.trim();
     
     if (!trimmedTicket) {
-      toast('Please enter a valid Ticket ID');
+      Toast.show({ type: 'error', text1: 'Invalid Ticket', text2: 'Please enter a valid Ticket ID' });
       return;
     }
 
@@ -45,17 +44,17 @@ export default function MarkPresentScreen() {
       });
       
       if (res.data?.success || res.status === 200 || res.status === 201) {
-        toast('Attendee successfully marked as present!');
+        Toast.show({ type: 'success', text1: 'Checked In! ✅', text2: 'Attendee successfully marked as present!' });
         setTicketId('');
         // Resume scanning after 2 seconds
         setTimeout(() => setScanning(true), 2000);
       } else {
-        toast(res.data?.message || 'Failed to mark as present.');
+        Toast.show({ type: 'error', text1: 'Check-in Failed', text2: res.data?.message || 'Failed to mark as present.' });
         setTimeout(() => setScanning(true), 2000);
       }
     } catch (e) {
-      console.log('Mark present error:', e?.response?.data || e?.message);
-      toast(e?.response?.data?.error || e?.response?.data?.message || 'Failed to check in attendee.');
+      const errorMsg = e?.response?.data?.error || e?.response?.data?.message || 'Failed to check in attendee.';
+      Toast.show({ type: 'error', text1: 'Check-in Error', text2: errorMsg });
       setTimeout(() => setScanning(true), 2000);
     } finally {
       setLoading(false);
