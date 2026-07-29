@@ -104,7 +104,7 @@ export default function Step2() {
             { transform: [{ translateX: leftSlide }], opacity: fadeIn },
           ]}
         >
-          <Text style={styles.title}>Discover Key Places</Text>
+          <Text style={styles.title}>Discover Places</Text>
           <Text style={styles.caption}>
             Explore stunning venues and key locations for your next event, from vibrant indoor spaces to majestic outdoors.
           </Text>

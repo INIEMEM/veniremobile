@@ -105,7 +105,7 @@ export default function Step3() {
           { transform: [{ translateX: leftSlide }], opacity: fadeIn },
         ]}
       >
-        <Text style={styles.title}>Hire Vendors for your events</Text>
+        <Text style={styles.title}>Hire a Vendor</Text>
         <Text style={styles.caption}>
           Connect with top-rated professionals, from photographers to DJs, to make your event truly unforgettable.
         </Text>
