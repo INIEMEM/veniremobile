@@ -341,12 +341,9 @@ export default function EventDetailsScreen() {
 
   const getTicketTotal = () => {
     let total = 0;
-    const ticketsSource = event?.tickets?.length > 0 
-      ? event.tickets 
-      : [{
-          _id: event?._id || "default",
-          price: event?.ticketAmount || 0,
-        }];
+    const ticketsSource = event?.tickets?.length > 0
+      ? event.tickets
+      : [{ _id: "default_base", price: event?.ticketAmount || 0 }];
 
     Object.entries(ticketQuantities).forEach(([id, qty]) => {
       const t = ticketsSource.find(x => x._id === id);
@@ -1314,10 +1311,10 @@ export default function EventDetailsScreen() {
             </Text>
 
             {(() => {
-              const ticketsToRender = event?.tickets?.length > 0 
-                ? event.tickets 
+              const ticketsToRender = event?.tickets?.length > 0
+                ? event.tickets
                 : [{
-                    _id: event?._id || "default",
+                    _id: "default_base",
                     name: event?.isTicket ? "Standard Ticket" : "Free Entry",
                     price: event?.ticketAmount || 0,
                     description: "General Admission"

@@ -452,6 +452,7 @@ export default function ExploreEvents({
       }
 
       // ALWAYS open ticket selection modal with full ticket data, even if tickets is empty.
+      console.log('=== RAW TICKETS FROM BACKEND ===', JSON.stringify(fullEvent?.tickets, null, 2));
       setTicketModalEvent(fullEvent);
       setTicketQuantities({});
     } catch (error) {
@@ -461,6 +462,9 @@ export default function ExploreEvents({
       setLoadingInterest(prev => ({ ...prev, [eventId]: false }));
     }
   };
+
+  // Returns the canonical ticket identifier the backend expects
+  const getTicketKey = (ticket) => ticket?.ticketId || ticket?.id || ticket?._id;
 
   const updateTicketQty = (ticketId, delta) => {
     setTicketQuantities(prev => {
@@ -473,15 +477,12 @@ export default function ExploreEvents({
 
   const getTicketTotal = () => {
     let total = 0;
-    const ticketsSource = ticketModalEvent?.tickets?.length > 0 
-      ? ticketModalEvent.tickets 
-      : [{
-          _id: ticketModalEvent?._id || "default",
-          price: ticketModalEvent?.ticketAmount || 0,
-        }];
+    const ticketsSource = ticketModalEvent?.tickets?.length > 0
+      ? ticketModalEvent.tickets
+      : [{ _id: "default_base", price: ticketModalEvent?.ticketAmount || 0 }];
 
     Object.entries(ticketQuantities).forEach(([id, qty]) => {
-      const t = ticketsSource.find(x => x._id === id);
+      const t = ticketsSource.find(x => getTicketKey(x) === id);
       if (t && qty > 0) total += (t.price || 0) * qty;
     });
     return total;
@@ -1469,10 +1470,10 @@ export default function ExploreEvents({
             </Text>
 
             {(() => {
-              const ticketsToRender = ticketModalEvent?.tickets?.length > 0 
-                ? ticketModalEvent.tickets 
+              const ticketsToRender = ticketModalEvent?.tickets?.length > 0
+                ? ticketModalEvent.tickets
                 : [{
-                    _id: ticketModalEvent?._id || "default",
+                    _id: "default_base",
                     name: ticketModalEvent?.isTicket ? "Standard Ticket" : "Free Entry",
                     price: ticketModalEvent?.ticketAmount || 0,
                     description: "General Admission"
@@ -1481,7 +1482,7 @@ export default function ExploreEvents({
               return (
                 <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
                   {ticketsToRender.map((ticket, idx) => (
-                    <View key={ticket._id || ticket.id || idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
+                    <View key={getTicketKey(ticket) || idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#1A1A1A' }}>{ticket.name}</Text>
                         <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 13, color: ticket.price > 0 ? '#5A31F4' : '#22C55E', marginTop: 2 }}>
@@ -1493,16 +1494,16 @@ export default function ExploreEvents({
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                         <TouchableOpacity
-                          onPress={() => updateTicketQty(ticket._id, -1)}
+                          onPress={() => updateTicketQty(getTicketKey(ticket), -1)}
                           style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3EDFF', justifyContent: 'center', alignItems: 'center' }}
                         >
                           <Ionicons name="remove" size={18} color="#5A31F4" />
                         </TouchableOpacity>
                         <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 16, color: '#1A1A1A', minWidth: 20, textAlign: 'center' }}>
-                          {ticketQuantities[ticket._id] || 0}
+                          {ticketQuantities[getTicketKey(ticket)] || 0}
                         </Text>
                         <TouchableOpacity
-                          onPress={() => updateTicketQty(ticket._id, 1)}
+                          onPress={() => updateTicketQty(getTicketKey(ticket), 1)}
                           style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#5A31F4', justifyContent: 'center', alignItems: 'center' }}
                         >
                           <Ionicons name="add" size={18} color="#fff" />
