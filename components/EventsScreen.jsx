@@ -24,6 +24,16 @@ let categoriesCache = null;
 let categoriesCacheTime = 0;
 const eventsCache = new Map();
 
+// Fisher-Yates shuffle for feed randomization
+const shuffleArray = (arr) => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
 const mergeUniqueEvents = (existingEvents, newEvents) => {
   const merged = new Map();
 
@@ -262,19 +272,23 @@ export default function EventsScreen({
         setHasMore(newEvents.length >= PAGE_SIZE);
 
         if (isInitial) {
-          // Initial load - replace all events
-          categorizeEvents(newEvents);
+          // Initial load - replace all events and shuffle for social feed feel
+          const shuffled = shuffleArray(newEvents);
+          categorizeEvents(shuffled);
           eventsCache.set(cacheKey, {
-            events: newEvents,
+            events: shuffled,
             currentPage: requestedPage,
             hasMore: newEvents.length >= PAGE_SIZE,
             time: Date.now(),
           });
         } else {
-          // Pagination - append new events
-          const updatedEvents = requestedPage === 1 && !hasMore
-            ? mergeUniqueEvents(allEventsRef.current, newEvents)
-            : mergeUniqueEvents(allEventsRef.current, newEvents);
+          // Pagination - merge, then shuffle newly added events into the existing ones
+          const merged = mergeUniqueEvents(allEventsRef.current, newEvents);
+          // Keep already-seen items in place; shuffle only the new tail so the scroll feels fresh
+          const existingIds = new Set(allEventsRef.current.map(e => e._id));
+          const existingItems = allEventsRef.current;
+          const brandNew = shuffleArray(newEvents.filter(e => !existingIds.has(e._id)));
+          const updatedEvents = [...existingItems, ...brandNew];
           categorizeEvents(updatedEvents);
           eventsCache.set(cacheKey, {
             events: updatedEvents,
@@ -416,11 +430,19 @@ export default function EventsScreen({
   };
 
   const handleLoadMore = () => {
-    const isFiltered = typeof filterStatus === 'string' ? filterStatus !== "all" : filterStatus.status !== "all" || filterStatus.distance !== "any" || filterStatus.price !== "all" || filterStatus.date !== "any";
+    const isFiltered = typeof filterStatus === 'string' 
+      ? filterStatus !== "all" 
+      : filterStatus.status !== "all" || filterStatus.distance !== "any" || filterStatus.price !== "all" || filterStatus.date !== "any";
     if (loadingMoreRef.current || loadingMore || loadingEvents || isFiltered) return;
 
-    const nextPage = hasMore ? currentPage + 1 : 1;
-    fetchAllEvents(nextPage, false);
+    if (hasMore) {
+      // More pages exist — fetch next page
+      fetchAllEvents(currentPage + 1, false);
+    } else {
+      // No more pages — re-shuffle the existing pool for endless scroll
+      const reshuffled = shuffleArray(allEventsRef.current);
+      categorizeEvents(reshuffled);
+    }
   };
 
   // If searching, show search results

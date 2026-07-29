@@ -114,15 +114,17 @@ export default function MarkPresentScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <CameraView 
-              style={styles.camera} 
-              facing="back"
-              barcodeScannerSettings={{
-                barcodeTypes: ["qr"],
-              }}
-              onBarcodeScanned={scanning ? handleBarcodeScanned : undefined}
-            >
-              <View style={styles.overlay}>
+            <>
+              <CameraView 
+                style={styles.camera} 
+                facing="back"
+                barcodeScannerSettings={{
+                  barcodeTypes: ["qr"],
+                }}
+                onBarcodeScanned={scanning ? handleBarcodeScanned : undefined}
+              />
+              {/* Overlay positioned absolutely on top of camera */}
+              <View style={styles.overlay} pointerEvents="none">
                 <View style={styles.scanTarget} />
                 {!scanning && (
                   <View style={styles.processingBadge}>
@@ -131,7 +133,7 @@ export default function MarkPresentScreen() {
                   </View>
                 )}
               </View>
-            </CameraView>
+            </>
           )}
         </View>
 
@@ -189,10 +191,10 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   camera: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
   },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
