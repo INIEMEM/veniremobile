@@ -383,7 +383,8 @@ export default function EventDetailsScreen() {
         setTicketQuantities({});
       }
     } catch (error) {
-      Toast.show({ type: "error", text1: "Purchase Failed", text2: error.response?.data?.message || "Something went wrong" });
+      const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Something went wrong";
+      Toast.show({ type: "error", text1: "Purchase Failed", text2: errorMsg });
     } finally {
       setPurchasingTickets(false);
     }
@@ -1018,7 +1019,7 @@ export default function EventDetailsScreen() {
                   <Text style={styles.rateBtnText}>Rate Event</Text>
                 </TouchableOpacity>
 
-                {!isOwner && (
+                {!isOwner && !(new Date(event.end || event.start) < new Date()) && (
                   <TouchableOpacity style={styles.interestedBtn} onPress={handleInterested}>
                     <Text style={styles.interestedText}>
                       {event.isTicket ? "Buy Tickets" : "Interested"}

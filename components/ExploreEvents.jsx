@@ -862,7 +862,7 @@ export default function ExploreEvents({
           </TouchableOpacity>
 
           {/* Interested */}
-          {!isDraftMode && !isOwnEvent && (
+          {!isDraftMode && !isOwnEvent && !(new Date(event.end || event.start) < new Date()) && (
             <TouchableOpacity
               style={[styles.interestedBtn, event.hasInterested && styles.interestedBtnActive]}
               onPress={() => handleInterested(event._id, event.hasInterested)}
@@ -1295,15 +1295,14 @@ export default function ExploreEvents({
               />
             </TouchableOpacity>
 
-            {!isDraftMode && !isOwnEvent && (
+            {/* Interested / Going */}
+            {!isDraftMode && !isOwnEvent && !(new Date(event.end || event.start) < new Date()) && (
               <TouchableOpacity
                 style={[
                   styles.sponsoredInterestedBtn,
                   event.hasInterested && styles.interestedBtnActive,
                 ]}
-                onPress={() =>
-                  handleInterested(event._id, event.hasInterested)
-                }
+                onPress={() => handleInterested(event._id, event.hasInterested)}
               >
                 <Ionicons
                   name={event.hasInterested ? "star" : "star-outline"}

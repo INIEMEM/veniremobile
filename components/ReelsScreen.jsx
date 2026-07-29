@@ -240,18 +240,20 @@ const ReelItem = memo(function ReelItem({
             </Text>
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.interestedButton,
-              event?.hasInterested && styles.interestedButtonActive,
-            ]}
-            onPress={() => onInterested(event)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.interestedButtonText}>
-              {event?.hasInterested ? "✓ Going" : "⭐ Interested"}
-            </Text>
-          </TouchableOpacity>
+          {!(new Date(event?.end || event?.start) < new Date()) && (
+            <TouchableOpacity
+              style={[
+                styles.interestedButton,
+                event?.hasInterested && styles.interestedButtonActive,
+              ]}
+              onPress={() => onInterested(event)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.interestedButtonText}>
+                {event?.hasInterested ? "✓ Going" : "⭐ Interested"}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View
