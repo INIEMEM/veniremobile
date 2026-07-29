@@ -104,11 +104,35 @@ export default function TicketList() {
       const res = await api.get(`/auth/search-users?q=${query}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.data?.success) {
-        setSearchResults(res.data.data);
+      
+      console.log('=== SEARCH API RESPONSE ===', JSON.stringify(res.data, null, 2));
+      Toast.show({ 
+        type: 'info', 
+        text1: 'API Log', 
+        text2: JSON.stringify(res.data).substring(0, 100),
+        visibilityTime: 4000
+      });
+
+      let users = [];
+      if (Array.isArray(res.data?.data?.data)) {
+        users = res.data.data.data;
+      } else if (Array.isArray(res.data?.data)) {
+        users = res.data.data;
+      } else if (Array.isArray(res.data)) {
+        users = res.data;
+      } else if (Array.isArray(res.data?.users)) {
+        users = res.data.users;
       }
+      
+      setSearchResults(users);
     } catch (err) {
-      console.error("Error searching users:", err);
+      console.log('=== SEARCH API ERROR ===', err.response?.data || err.message);
+      Toast.show({ 
+        type: 'error', 
+        text1: 'API Error Log', 
+        text2: JSON.stringify(err.response?.data || err.message).substring(0, 100),
+        visibilityTime: 6000
+      });
     } finally {
       setIsSearching(false);
     }
@@ -135,11 +159,13 @@ export default function TicketList() {
         headers: { Authorization: `Bearer ${token}` }
       });
       
+      console.log('=== TRANSFER API RESPONSE ===', JSON.stringify(res.data, null, 2));
+      
       if (res.data?.success) {
         Toast.show({
           type: "success",
           text1: "Ticket Transferred! ✈️",
-          text2: `Ticket sent to ${selectedUser.username || selectedUser.firstName || selectedUser.firstname} successfully.`
+          text2: `Ticket sent to ${selectedUser.username || selectedUser.firstname || selectedUser.firstName || 'User'} successfully.`
         });
         setSelectedTicket(null);
         setShowTransfer(false);
@@ -147,10 +173,15 @@ export default function TicketList() {
         setSearchQuery("");
         setTransferQuantity("1");
         loadTickets();
+      } else {
+        const errorMsg = res.data?.error || res.data?.message || "Please try again.";
+        Toast.show({ type: "error", text1: "Transfer Failed", text2: errorMsg });
       }
     } catch (err) {
-      console.error(err);
-      Toast.show({ type: "error", text1: "Transfer Failed", text2: err.response?.data?.message || "Please try again." });
+      console.log('=== TRANSFER API ERROR ===', err.response?.data || err.message);
+      const errorData = err.response?.data;
+      const errorMessage = errorData?.error || errorData?.message || err.message || "Failed to transfer ticket.";
+      Toast.show({ type: "error", text1: "Transfer Failed", text2: errorMessage });
     } finally {
       setIsTransferring(false);
     }
@@ -385,7 +416,7 @@ export default function TicketList() {
                           </View>
                           <View>
                             <Text style={{ fontFamily: 'Poppins_500Medium', fontSize: 14, color: '#333' }}>
-                              {user.firstName} {user.lastName}
+                              {user.firstname || user.firstName} {user.lastname || user.lastName}
                             </Text>
                             <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#666' }}>
                               {user.email}
@@ -397,6 +428,12 @@ export default function TicketList() {
                   </View>
                 )}
 
+                {searchQuery.length > 1 && searchResults.length === 0 && !isSearching && !selectedUser && (
+                  <View style={{ padding: 12, borderWidth: 1, borderColor: '#eee', borderRadius: 8, marginTop: 5 }}>
+                    <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 13, color: '#999', textAlign: 'center' }}>No users found for "{searchQuery}"</Text>
+                  </View>
+                )}
+
                 {selectedUser && (
                   <View style={{ marginTop: 10, padding: 12, backgroundColor: '#F3EDFF', borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -405,7 +442,7 @@ export default function TicketList() {
                       </View>
                       <View>
                         <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: 14, color: '#5A31F4' }}>
-                          {selectedUser.firstName} {selectedUser.lastName}
+                          {selectedUser.firstname || selectedUser.firstName} {selectedUser.lastname || selectedUser.lastName}
                         </Text>
                         <Text style={{ fontFamily: 'Poppins_400Regular', fontSize: 12, color: '#666' }}>
                           {selectedUser.email}
