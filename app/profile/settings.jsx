@@ -16,11 +16,15 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import api from '../../utils/axiosInstance';
+import { useAuth } from '../../context/AuthContext';
 
 export default function UserSettingsScreen() {
   const router = useRouter();
+  const { logout } = useAuth();
 
+  const [activeView, setActiveView] = useState('main'); // 'main' or 'security'
   const [loadingAction, setLoadingAction] = useState(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Forms states
   const [activeTab, setActiveTab] = useState('add'); // 'add', 'change', 'reset'
@@ -116,30 +120,132 @@ export default function UserSettingsScreen() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await logout();
+      router.replace("/auth/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <TouchableOpacity 
+            onPress={() => activeView === 'security' ? setActiveView('main') : router.back()} 
+            style={styles.backBtn}
+          >
             <Ionicons name="arrow-back" size={22} color="#1A1A1A" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Security Settings</Text>
+          <Text style={styles.headerTitle}>{activeView === 'security' ? 'Security Settings' : 'Settings'}</Text>
           <View style={{ width: 40 }} />
         </View>
 
-        <View style={styles.tabContainer}>
-          {['add', 'change', 'reset'].map((tab) => (
+        {activeView === 'main' ? (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+            {/* Account Section */}
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionHeader}>Account</Text>
+              
+              <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/edit-profile')}>
+                <View style={styles.settingItemLeft}>
+                  <View style={[styles.iconBox, { backgroundColor: '#E0F2FE' }]}>
+                    <Ionicons name="person-outline" size={20} color="#0284C7" />
+                  </View>
+                  <Text style={styles.settingItemText}>Edit Profile</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/Notifications')}>
+                <View style={styles.settingItemLeft}>
+                  <View style={[styles.iconBox, { backgroundColor: '#FEF3C7' }]}>
+                    <Ionicons name="notifications-outline" size={20} color="#D97706" />
+                  </View>
+                  <Text style={styles.settingItemText}>Notifications</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Security Section */}
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionHeader}>Security</Text>
+              
+              <TouchableOpacity style={styles.settingItem} onPress={() => setActiveView('security')}>
+                <View style={styles.settingItemLeft}>
+                  <View style={[styles.iconBox, { backgroundColor: '#DCFCE7' }]}>
+                    <Ionicons name="lock-closed-outline" size={20} color="#16A34A" />
+                  </View>
+                  <View>
+                    <Text style={styles.settingItemText}>Transaction PIN</Text>
+                    <Text style={styles.settingItemSubtext}>Add, change, or reset PIN</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Support Section */}
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionHeader}>Support & About</Text>
+              
+              <TouchableOpacity style={styles.settingItem} onPress={() => Toast.show({ type: 'info', text1: 'Coming Soon' })}>
+                <View style={styles.settingItemLeft}>
+                  <View style={[styles.iconBox, { backgroundColor: '#F3E8FF' }]}>
+                    <Ionicons name="help-circle-outline" size={20} color="#9333EA" />
+                  </View>
+                  <Text style={styles.settingItemText}>Help Center</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.settingItem} onPress={() => Toast.show({ type: 'info', text1: 'Coming Soon' })}>
+                <View style={styles.settingItemLeft}>
+                  <View style={[styles.iconBox, { backgroundColor: '#F3F4F6' }]}>
+                    <Ionicons name="document-text-outline" size={20} color="#4B5563" />
+                  </View>
+                  <Text style={styles.settingItemText}>Privacy Policy</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+
             <TouchableOpacity 
-              key={tab} 
-              style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]} 
-              onPress={() => setActiveTab(tab)}
+              style={styles.logoutBtn} 
+              onPress={handleLogout}
+              disabled={isLoggingOut}
             >
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab === 'add' ? 'Set PIN' : tab === 'change' ? 'Change PIN' : 'Reset PIN'}
-              </Text>
+              {isLoggingOut ? (
+                <ActivityIndicator color="#FF3B30" />
+              ) : (
+                <>
+                  <Ionicons name="log-out-outline" size={22} color="#FF3B30" style={{ marginRight: 8 }} />
+                  <Text style={styles.logoutBtnText}>Log Out</Text>
+                </>
+              )}
             </TouchableOpacity>
-          ))}
-        </View>
+          </ScrollView>
+        ) : (
+          <>
+            <View style={styles.tabContainer}>
+              {['add', 'change', 'reset'].map((tab) => (
+                <TouchableOpacity 
+                  key={tab} 
+                  style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]} 
+                  onPress={() => setActiveTab(tab)}
+                >
+                  <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                    {tab === 'add' ? 'Set PIN' : tab === 'change' ? 'Change PIN' : 'Reset PIN'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
           
@@ -290,6 +396,9 @@ export default function UserSettingsScreen() {
           )}
 
         </ScrollView>
+          </>
+        )}
+
       </View>
     </KeyboardAvoidingView>
   );
@@ -364,4 +473,64 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   submitBtnText: { fontFamily: 'Poppins_600SemiBold', fontSize: 16, color: '#FFF' },
+  sectionContainer: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 16,
+    color: '#374151',
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+  settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  settingItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  settingItemText: {
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 15,
+    color: '#111827',
+  },
+  settingItemSubtext: {
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    padding: 16,
+    borderRadius: 16,
+    marginTop: 10,
+  },
+  logoutBtnText: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 16,
+    color: '#FF3B30',
+  }
 });

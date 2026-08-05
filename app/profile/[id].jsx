@@ -39,8 +39,7 @@ export default function ProfilePage() {
   const [interestedEvents, setInterestedEvents] = useState([]);
   const [bookmarkedEvents, setBookmarkedEvents] = useState([]);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const { user: authUser, logout, updateUser } = useAuth();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { user: authUser, updateUser } = useAuth();
   
   const isMyProfile = authUser?._id === id || String(authUser?._id) === String(id);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -57,17 +56,7 @@ export default function ProfilePage() {
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [walletBalance, setWalletBalance] = useState(142500);
 
-  const handleLogout = async () => {
-    try {
-      setIsLoggingOut(true);
-      await logout();
-      router.replace("/auth/login");
-    } catch (error) {
-      console.error("Logout error:", error);
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
+
 
   // Fetch all events and filter by interest/bookmark
   const fetchFilteredEvents = async () => {
@@ -454,9 +443,6 @@ export default function ProfilePage() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.heroIconBtn} onPress={() => router.push('/disputes')}>
                 <Ionicons name="shield-half-outline" size={22} color="#FFF" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.heroIconBtn} onPress={handleLogout} disabled={isLoggingOut}>
-                <Ionicons name="log-out-outline" size={22} color="#FFF" />
               </TouchableOpacity>
             </View>
           )}

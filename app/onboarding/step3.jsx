@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     opacity: 1,
   },
   skip: { color: "#fff", fontWeight: "600", fontSize: 16, fontFamily: "Urbanist_400Regular"  },
-  content: { marginTop: 10 },
+  content: { marginTop: 10, flex: 1 },
   title: {
     color: "#fff",
     fontSize: 20,
